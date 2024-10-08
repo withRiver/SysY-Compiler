@@ -1,1 +1,0 @@
-build/compiler -koopa debug/hello.c -o hello.koopa
