@@ -21,7 +21,7 @@ class BaseAST {
  public:
     virtual ~BaseAST() = default;    
     virtual void Dump() const = 0;
-    virtual void DumpIR() const = 0;
+    virtual void DumpIR(std::string& irStr) const = 0;
 };
 
 class CompUnitAST : public BaseAST {
@@ -35,9 +35,9 @@ class CompUnitAST : public BaseAST {
         std::cout << std::endl;
     }
 
-    void DumpIR() const override {
-        func_def->DumpIR();
-        std::cout << std::endl;
+    void DumpIR(std::string& irStr) const override {
+        func_def->DumpIR(irStr);
+        irStr += "\n";
     }
 };
 
@@ -55,11 +55,11 @@ class FuncDefAST : public BaseAST {
         std::cout<<" }";
     }
 
-    void DumpIR() const override {
-        std::cout << "fun ";
-        std::cout << "@" << ident << "(): ";
-        func_type->DumpIR();
-        block->DumpIR();
+    void DumpIR(std::string& irStr) const override {
+        irStr += "fun ";
+        irStr +=  "@" + ident + "(): ";
+        func_type->DumpIR(irStr);
+        block->DumpIR(irStr);
     }
 };
 
@@ -73,8 +73,8 @@ class FuncTypeAST : public BaseAST {
         std::cout << " }";
     }
 
-    void DumpIR() const override {
-        std::cout << "i32" << ' ';
+    void DumpIR(std::string& irStr) const override {
+        irStr += "i32 ";
     }
 };
 
@@ -88,11 +88,11 @@ class BlockAST : public BaseAST {
         std::cout << " }";
     }
 
-    void DumpIR() const override {
-        std::cout << "{ " << std::endl;
-        std::cout << "%entry: " << std::endl;
-        stmt->DumpIR();
-        std::cout << std::endl << '}';
+    void DumpIR(std::string& irStr) const override {
+        irStr += "{ \n";
+        irStr += "%entry: \n";
+        stmt->DumpIR(irStr);
+        irStr += "\n}";
     }
 };
 
@@ -106,7 +106,8 @@ class StmtAST : public BaseAST {
         std::cout<<" }";
     }
 
-    void DumpIR() const override {
-        std::cout << "ret " << number;
+    void DumpIR(std::string& irStr) const override {
+        irStr += "ret ";
+        irStr += std::to_string(number);
     }
 };

@@ -33,17 +33,17 @@ int main(int argc, const char *argv[]) {
   auto ret = yyparse(ast);
   assert(!ret);
 
+  string irStr("");
+  ast->DumpIR(irStr);
+
   // 将IR输出到output
   std::ofstream outFile(output);
   assert(outFile);
-  std::streambuf *coutBuffer = std::cout.rdbuf();
-  std::cout.rdbuf(outFile.rdbuf());
-  ast->DumpIR();
-  std::cout.rdbuf(coutBuffer);
+  outFile << irStr;
   outFile.close();
 
   // 将IR输出到stdout
-  ast->DumpIR();
+  cout << irStr;
 
   return 0;
 }
