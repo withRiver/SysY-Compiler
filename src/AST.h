@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 class BaseAST;
 class CompUnitAST;
@@ -26,17 +27,30 @@ Stmt        ::= "return" Exp ";";
 
 
 
-Exp         ::= AddExp;
+Exp         ::= LOrExp;
 PrimaryExp  ::= "(" Exp ")" | Number;
 Number      ::= INT_CONST;
 UnaryExp    ::= PrimaryExp | UnaryOp UnaryExp;
 UnaryOp     ::= "+" | "-" | "!";
 MulExp      ::= UnaryExp | MulExp ("*" | "/" | "%") UnaryExp;
 AddExp      ::= MulExp | AddExp ("+" | "-") MulExp;
+RelExp      ::= AddExp | RelExp ("<" | ">" | "<=" | ">=") AddExp;
+EqExp       ::= RelExp | EqExp ("==" | "!=") RelExp;
+LAndExp     ::= EqExp | LAndExp "&&" EqExp;
+LOrExp      ::= LAndExp | LOrExp "||" LAndExp;
+
 */
 
 //使用到的寄存器编号
-static int reg = 0;
+static int global_reg = 0;
+//将字符op对应到其IR表示
+static std::unordered_map<char, std::string> op2IR = {
+    {'+', "add"}, 
+    {'-', "sub"},
+    {'*', "mul"},
+    {'/', "div"},
+    {'%', "mod"}
+};
 
 class BaseAST {
  public:
@@ -60,7 +74,7 @@ class CompUnitAST : public BaseAST {
         func_def->DumpIR();
         std::cout << std::endl;
         //DumpIR结束，将reg重置为0
-        reg = 0;
+        global_reg = 0;
         return "";
     }
 };
@@ -121,6 +135,7 @@ class BlockAST : public BaseAST {
     }
 };
 
+// Stmt ::= "return" Exp ";";
 class StmtAST : public BaseAST {
  public:
     std::unique_ptr<BaseAST> exp;
@@ -137,27 +152,29 @@ class StmtAST : public BaseAST {
         if(!num.empty()) {
             std::cout << "  ret " << num << std::endl;
         } else {
-            std::cout << "  ret %" << reg - 1 << std::endl;
+            std::cout << "  ret %" << global_reg - 1 << std::endl;
         }
         return "";
     }
 };
 
+//Exp ::= AddExp;
 class ExpAST : public BaseAST {
  public:
-    std::unique_ptr<BaseAST> unary_exp;
+    std::unique_ptr<BaseAST> add_exp;
 
     void Dump() const override {
         std::cout << "ExpAST { ";
-        unary_exp->Dump();
+        add_exp->Dump();
         std::cout << " }";
     }
 
     std::string DumpIR() const override {
-        return unary_exp->DumpIR();
+        return add_exp->DumpIR();
     }
 };
 
+// PrimaryExp ::= "(" Exp ")" | Number;
 class PrimaryExpAST : public BaseAST {
  public:
     enum TAG {BRAKET_EXP, NUMBER};
@@ -188,9 +205,9 @@ class PrimaryExpAST : public BaseAST {
                 return exp->DumpIR();
                 break;
             case NUMBER:
-                //std::cout << "  %" << reg << " = add 0, ";
+                //std::cout << "  %" << global_reg << " = add 0, ";
                 //std::cout << number << std::endl;
-                //++reg;
+                //++global_reg;
                 return std::to_string(number);
                 break;
             default:
@@ -200,6 +217,7 @@ class PrimaryExpAST : public BaseAST {
     }
 };
 
+//UnaryExp ::= PrimaryExp | UnaryOp UnaryExp;
 class UnaryExpAST : public BaseAST {
  public:
     enum TAG { PRIMARY_EXP, OP_UNARY_EXP};
@@ -242,24 +260,115 @@ class UnaryExpAST : public BaseAST {
                 }
                 if(unary_op == '-') {
                     if(!num.empty()) {
-                        std::cout << "  %" << reg << " = sub 0, " << num;
+                        std::cout << "  %" << global_reg << " = sub 0, " << num;
                     }
                     else {
-                        std::cout << "  %" << reg << " = sub 0, %" << reg - 1;
+                        std::cout << "  %" << global_reg << " = sub 0, %" << global_reg - 1;
                     }
                     std::cout << std::endl;
-                    ++reg;
+                    ++global_reg;
                 }
                 else if(unary_op == '!') {
                     if(!num.empty()) {
-                        std::cout << "  %" << reg << " = eq 0, " << num; 
+                        std::cout << "  %" << global_reg << " = eq 0, " << num; 
                     }
                     else {
-                        std::cout <<"  %" << reg << " = eq 0, %" << reg - 1;
+                        std::cout <<"  %" << global_reg << " = eq 0, %" << global_reg - 1;
                     }
                     std::cout << std::endl;
-                    ++reg;
+                    ++global_reg;
                 }
+                break;
+            default:
+                break;
+        }
+        return "";
+    }
+};
+
+// MulExp ::= UnaryExp | MulExp MulOp UnaryExp;
+// MulOp ::= "*" | "/" | "%"
+class MulExpAST : public BaseAST {
+ public:
+    enum Tag {UNARY_EXP, MULEXP_OP_UNARYEXP};
+    Tag tag;
+    std::unique_ptr<BaseAST> unary_exp;
+    char mul_op;
+    std::unique_ptr<BaseAST> mul_exp;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        std::string left_num, right_num;
+        int left_reg, right_reg;
+        switch(tag) {
+            case UNARY_EXP:
+                return unary_exp->DumpIR();
+                break;
+            case MULEXP_OP_UNARYEXP:
+                left_num = mul_exp->DumpIR();
+                left_reg = global_reg - 1;
+                right_num = unary_exp->DumpIR();
+                right_reg = global_reg - 1;
+                std::cout << "  %" << global_reg << " = " << op2IR[mul_op];
+                if(!left_num.empty()) {
+                    std::cout << " " << left_num << ",";
+                } else {
+                    std::cout << " %" << left_reg << ",";
+                }
+                if(!right_num.empty()) {
+                    std::cout << " " << right_num;
+                } else {
+                    std::cout << " %" << right_reg;
+                }
+                std::cout << std::endl;
+                ++global_reg;
+                break;
+            default:
+                break;
+        }
+        return "";
+    }
+
+};
+
+// AddExp ::= MulExp | AddExp AddOp MulExp;
+// AddOp ::= "+" | "-"
+class AddExpAST : public BaseAST {
+ public:
+    enum TAG {MUL_EXP, ADDEXP_OP_MULEXP};
+    TAG tag;
+    std::unique_ptr<BaseAST> mul_exp;
+    char add_op;
+    std::unique_ptr<BaseAST> add_exp;
+
+    void Dump() const override {}
+    
+    std::string DumpIR() const override {
+        std::string left_num, right_num;
+        int left_reg, right_reg;
+        switch(tag) {
+            case MUL_EXP:
+                return mul_exp->DumpIR();
+                break;
+            case ADDEXP_OP_MULEXP:
+                left_num = add_exp->DumpIR();
+                left_reg = global_reg - 1;
+                right_num = mul_exp->DumpIR();
+                right_reg = global_reg - 1;
+                std::cout << "  %" << global_reg << " = " << op2IR[add_op];
+                if(!left_num.empty()) {
+                    std::cout << " " << left_num << ",";
+                } else {
+                    std::cout << " %" << left_reg << ",";
+                }
+                if(!right_num.empty()) {
+                    std::cout << " " << right_num;
+                } else {
+                    std::cout << " %" << right_reg;
+                }
+                std::cout << std::endl;
+                ++global_reg;
                 break;
             default:
                 break;
