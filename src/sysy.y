@@ -31,6 +31,7 @@ using namespace std;
 %union {
   std::string *str_val;
   int int_val;
+  char char_val;
   BaseAST *ast_val;
 }
 
@@ -41,8 +42,9 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt 
+%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp
 %type <int_val> Number
+%type <char_val> UnaryOp
 
 %%
 
@@ -89,8 +91,6 @@ FuncType
 
 Block
   : '{' Stmt '}' {
-    // auto stmt = unique_ptr<string>($2);
-    // $$ = new string("{ " + *stmt + " }");
     auto block = new BlockAST();
     block->stmt = unique_ptr<BaseAST>($2);
     $$ = block;
@@ -98,21 +98,70 @@ Block
   ;
 
 Stmt
-  : RETURN Number ';' {
-    // auto number = unique_ptr<string>($2);
-    // $$ = new string("return " + *number + ";");
+  : RETURN Exp ';' {
     auto stmt = new StmtAST();
-    stmt->number = $2;
+    stmt->exp = unique_ptr<BaseAST>($2);
     $$ = stmt;
   }
   ;
 
 Number
   : INT_CONST {
-    //$$ = new string(to_string($1));
     $$ = $1; 
   }
   ;
+
+UnaryOp 
+  : '+' {
+    $$ = '+';
+  }
+  | '-' {
+    $$ = '-';
+  }
+  | '!'{
+    $$ = '!';
+  }
+  ;
+
+Exp
+  : UnaryExp {
+    auto exp = new ExpAST();
+    exp->unary_exp = unique_ptr<BaseAST>($1);
+    $$ = exp;
+  }
+  ;
+
+PrimaryExp 
+  : '(' Exp ')' {
+    auto primary_exp = new PrimaryExpAST();
+    primary_exp->tag = PrimaryExpAST::BRAKET_EXP;
+    primary_exp->exp = unique_ptr<BaseAST>($2);
+    $$ = primary_exp;
+  } 
+  | Number {
+    auto primary_exp = new PrimaryExpAST();
+    primary_exp->tag = PrimaryExpAST::NUMBER;
+    primary_exp->number = $1;
+    $$ = primary_exp;
+  }
+  ;
+
+UnaryExp 
+  : PrimaryExp {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->tag = UnaryExpAST::PRIMARY_EXP;
+    unary_exp->primary_exp = unique_ptr<BaseAST>($1);
+    $$ = unary_exp;
+  }
+  | UnaryOp UnaryExp {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->tag = UnaryExpAST::OP_UNARY_EXP;
+    unary_exp->unary_op = $1;
+    unary_exp->unary_exp = unique_ptr<BaseAST>($2);
+    $$ = unary_exp;
+  }
+  ;
+
 
 %%
 

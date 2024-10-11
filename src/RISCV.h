@@ -14,16 +14,19 @@ void Visit(const koopa_raw_function_t &func);
 void Visit(const koopa_raw_basic_block_t &bb);
 // 访问指令
 void Visit(const koopa_raw_value_t &value);
-// 访问对应类型指令
+// 访问 return 指令
 void Visit(const koopa_raw_return_t &ret);
+// 访问 integer 指令
 void Visit(const koopa_raw_integer_t &integer);
+// 访问 binary 指令
+void Visit(const koopa_raw_binary_t & binary);
 
+void value2reg(const koopa_raw_value_t &value, const std::string &reg);
 
 // 访问 raw program
 void Visit(const koopa_raw_program_t &program) {
   // 执行一些其他的必要操作
   // ...
-  std::cout << "\t.text\n";
   // 访问所有全局变量
   Visit(program.values);
   // 访问所有函数
@@ -57,12 +60,15 @@ void Visit(const koopa_raw_slice_t &slice) {
 
 // 访问函数
 void Visit(const koopa_raw_function_t &func) {
+  if(func->bbs.len == 0) return;
   // 执行一些其他的必要操作
-  std::cout << "\t.globl ";
+  std::cout << "  .text\n";
+  std::cout << "  .globl ";
   std::string name = std::string(func->name + 1);
   std::cout << name << "\n" << name << ":\n";
   // 访问所有基本块
   Visit(func->bbs);
+  std::cout << std::endl;
 }
 
 // 访问基本块
@@ -97,29 +103,29 @@ void Visit(const koopa_raw_value_t &value) {
       // 访问 integer 指令
       Visit(kind.data.integer);
       break;
+    case KOOPA_RVT_BINARY:
+      // 访问 binary 指令
+      Visit(kind.data.binary);
+      break;
     default:
       // 其他类型暂时遇不到
       assert(false);
   }
 }
 
-// 访问对应类型指令的函数定义略
-// 视需求自行实现
-// ...
+// 访问return
 void Visit(const koopa_raw_return_t &ret) {
   Visit(ret.value);
-  std::cout << "\tret\n";
+  std::cout << "  ret\n";
 }
 
+// 访问integer
 void Visit(const koopa_raw_integer_t &integer) {
   int32_t int_val = integer.value;
-  std::cout << "\tli a0, " << int_val << "\n";
+  std::cout << "  li a0, " << int_val << "\n";
 } 
 
-/*
-.text
-  .globl main
-main:
-  li a0, 0
-  ret
-*/
+// 访问binary
+void Visit(const koopa_raw_binary_t &binary) {
+  
+}

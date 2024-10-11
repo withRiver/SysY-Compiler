@@ -2,7 +2,8 @@
 /build
 /.vscode
 /debug
-look.sh
+look_koopa.sh
+look_riscv.sh
 hello.koopa
 hello.riscv
 autotest.sh
