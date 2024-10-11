@@ -38,12 +38,13 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT
+%token <str_val> IDENT RELOP EQOP
 %token <int_val> INT_CONST
+%token LAND LOR
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType Block Stmt 
-%type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp
+%type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
 %type <int_val> Number
 %type <char_val> UnaryOp MulOp AddOp
 
@@ -125,9 +126,9 @@ UnaryOp
   ;
 
 Exp
-  : AddExp {
+  : LOrExp {
     auto exp = new ExpAST();
-    exp->add_exp = unique_ptr<BaseAST>($1);
+    exp->lor_exp = unique_ptr<BaseAST>($1);
     $$ = exp;
   }
   ;
@@ -215,6 +216,72 @@ AddOp
   }
   | '-' {
     $$ = '-';
+  }
+  ;
+
+RelExp
+  : AddExp {
+    auto rel_exp = new RelExpAST();
+    rel_exp->tag = RelExpAST::ADD_EXP;
+    rel_exp->add_exp = unique_ptr<BaseAST>($1);
+    $$ = rel_exp;
+  }
+  | RelExp RELOP AddExp {
+    auto rel_exp = new RelExpAST();
+    rel_exp->tag = RelExpAST::RELEXP_OP_ADDEXP;
+    rel_exp->rel_exp = unique_ptr<BaseAST>($1);
+    rel_exp->rel_op = *unique_ptr<string>($2);
+    rel_exp->add_exp = unique_ptr<BaseAST>($3);
+    $$ = rel_exp;
+  }
+  ;
+
+EqExp
+  : RelExp {
+    auto eq_exp = new EqExpAST();
+    eq_exp->tag = EqExpAST::REL_EXP;
+    eq_exp->rel_exp = unique_ptr<BaseAST>($1);
+    $$ = eq_exp;
+  }
+  | EqExp EQOP RelExp {
+    auto eq_exp = new EqExpAST();
+    eq_exp->tag = EqExpAST::EQEXP_OP_RELEXP;
+    eq_exp->eq_exp = unique_ptr<BaseAST>($1);
+    eq_exp->eq_op = *unique_ptr<string>($2);
+    eq_exp->rel_exp = unique_ptr<BaseAST>($3);
+    $$=eq_exp;
+  }
+  ;
+
+LAndExp
+  : EqExp {
+    auto land_exp = new LAndExpAST();
+    land_exp->tag = LAndExpAST::EQ_EXP;
+    land_exp->eq_exp = unique_ptr<BaseAST>($1);
+    $$ = land_exp;
+  }
+  | LAndExp LAND EqExp {
+    auto land_exp = new LAndExpAST();
+    land_exp->tag = LAndExpAST:: LANDEXP_AND_EQEXP;
+    land_exp->land_exp = unique_ptr<BaseAST>($1);
+    land_exp->eq_exp = unique_ptr<BaseAST>($3);
+    $$=land_exp;
+  }
+  ;
+
+LOrExp
+  : LAndExp {
+    auto lor_exp = new LOrExpAST();
+    lor_exp->tag = LOrExpAST::LAND_EXP;
+    lor_exp->land_exp = unique_ptr<BaseAST>($1);
+    $$ = lor_exp;
+  }
+  | LOrExp LOR LAndExp {
+    auto lor_exp = new LOrExpAST();
+    lor_exp->tag = LOrExpAST::LOREXP_OR_LANDEXP;
+    lor_exp->lor_exp = unique_ptr<BaseAST>($1);
+    lor_exp->land_exp = unique_ptr<BaseAST>($3);
+    $$ = lor_exp;
   }
   ;
 
