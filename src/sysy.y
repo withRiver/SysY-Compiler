@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 #include "AST.h"
 // 声明 lexer 函数和错误处理函数
 int yylex();
@@ -31,21 +32,24 @@ using namespace std;
 %union {
   std::string *str_val;
   int int_val;
-  char char_val;
+  std::vector<std::unique_ptr<BaseAST>> *vec_val;
   BaseAST *ast_val;
 }
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN
+%token INT RETURN CONST
 %token <str_val> IDENT UNARYADDOP MULOP RELOP EQOP
 %token <int_val> INT_CONST
 %token LAND LOR
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt 
-%type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
+%type <ast_val> Decl ConstDecl BType ConstDef ConstInitVal
+%type <ast_val> FuncDef FuncType Block BlockItem Stmt 
+%type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
+%type <ast_val> LVal
+%type <vec_val> BlockItemList ConstDefList 
 
 %%
 
@@ -91,10 +95,37 @@ FuncType
   ;
 
 Block
-  : '{' Stmt '}' {
+  : '{' BlockItemList '}' {
     auto block = new BlockAST();
-    block->stmt = unique_ptr<BaseAST>($2);
+    block->blockitem_vec = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = block;
+  }
+  ;
+
+BlockItemList 
+  : {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    $$ = vec;
+  } 
+  | BlockItemList BlockItem {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  ;
+
+BlockItem
+  : Decl {
+    auto ast = new BlockItemAST();
+    ast->tag = BlockItemAST::DECL;
+    ast->decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Stmt {
+    auto ast=new BlockItemAST();
+    ast->tag = BlockItemAST::STMT;
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
   }
   ;
 
@@ -106,12 +137,73 @@ Stmt
   }
   ;
 
+Decl
+  : ConstDecl {
+    auto decl = new DeclAST();
+    decl->const_decl = unique_ptr<BaseAST>($1);
+    $$ = decl;
+  }
+  ;
+
+ConstDecl
+  : CONST BType ConstDefList ';' {
+    auto ast = new ConstDeclAST();
+    ast->btype = unique_ptr<BaseAST>($2);
+    ast->constdef_vec = unique_ptr<vector<unique_ptr<BaseAST>>>($3);
+    $$ = ast;
+  }
+  ;
+
+BType
+  : INT {
+    auto ast = new BTypeAST();
+    $$ = ast;
+  }
+  ;
+
+ConstDefList
+  : ConstDef {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstDefList ',' ConstDef {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+
+ConstDef
+  : IDENT '=' ConstInitVal {
+    auto ast = new ConstDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+ConstInitVal
+  : ConstExp {
+    auto ast = new ConstInitValAST();
+    ast->const_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+
 Number
   : INT_CONST {
     $$ = $1; 
   }
   ;
 
+LVal
+  : IDENT {
+    auto lval = new LValAST();
+    lval->ident = *unique_ptr<string>($1);
+    $$ = lval;
+  }
 
 Exp
   : LOrExp {
@@ -128,6 +220,12 @@ PrimaryExp
     primary_exp->exp = unique_ptr<BaseAST>($2);
     $$ = primary_exp;
   } 
+  | LVal {
+    auto primary_exp = new PrimaryExpAST();
+    primary_exp->tag = PrimaryExpAST::LVAL;
+    primary_exp->lval = unique_ptr<BaseAST>($1);
+    $$ = primary_exp;
+  }
   | Number {
     auto primary_exp = new PrimaryExpAST();
     primary_exp->tag = PrimaryExpAST::NUMBER;
@@ -216,7 +314,7 @@ EqExp
     eq_exp->eq_exp = unique_ptr<BaseAST>($1);
     eq_exp->eq_op = *unique_ptr<string>($2);
     eq_exp->rel_exp = unique_ptr<BaseAST>($3);
-    $$=eq_exp;
+    $$ = eq_exp;
   }
   ;
 
@@ -232,7 +330,7 @@ LAndExp
     land_exp->tag = LAndExpAST:: LANDEXP_AND_EQEXP;
     land_exp->land_exp = unique_ptr<BaseAST>($1);
     land_exp->eq_exp = unique_ptr<BaseAST>($3);
-    $$=land_exp;
+    $$ = land_exp;
   }
   ;
 
@@ -249,6 +347,14 @@ LOrExp
     lor_exp->lor_exp = unique_ptr<BaseAST>($1);
     lor_exp->land_exp = unique_ptr<BaseAST>($3);
     $$ = lor_exp;
+  }
+  ;
+
+ConstExp
+  : Exp {
+    auto ast=new ConstExpAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
   }
   ;
 

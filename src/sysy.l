@@ -42,6 +42,7 @@ EqOp          [!=]=
 
 "int"           { return INT; }
 "return"        { return RETURN; }
+"const"         { return CONST; }
 "&&"            { return LAND; }
 "||"            { return LOR; }
 {UnaryAddOp}       { yylval.str_val = new string(yytext); return UNARYADDOP; }
