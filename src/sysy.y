@@ -44,12 +44,12 @@ using namespace std;
 %token LAND LOR
 
 // 非终结符的类型定义
-%type <ast_val> Decl ConstDecl BType ConstDef ConstInitVal
+%type <ast_val> Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
 %type <ast_val> FuncDef FuncType Block BlockItem Stmt 
 %type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
 %type <ast_val> LVal
-%type <vec_val> BlockItemList ConstDefList 
+%type <vec_val> BlockItemList ConstDefList VarDefList
 
 %%
 
@@ -132,15 +132,28 @@ BlockItem
 Stmt
   : RETURN Exp ';' {
     auto stmt = new StmtAST();
+    stmt->tag = StmtAST::RETURN;
     stmt->exp = unique_ptr<BaseAST>($2);
     $$ = stmt;
   }
+  | LVal '=' Exp ';' {
+    auto stmt = new StmtAST();
+    stmt->tag = StmtAST::ASSIGN;
+    stmt->lval = unique_ptr<BaseAST>($1);
+    stmt->exp = unique_ptr<BaseAST>($3);
+    $$ = stmt;
+  }  
   ;
 
 Decl
   : ConstDecl {
     auto decl = new DeclAST();
-    decl->const_decl = unique_ptr<BaseAST>($1);
+    decl->const_var_decl = unique_ptr<BaseAST>($1);
+    $$ = decl;
+  }
+  | VarDecl {
+    auto decl = new DeclAST();
+    decl->const_var_decl = unique_ptr<BaseAST>($1);
     $$ = decl;
   }
   ;
@@ -191,6 +204,51 @@ ConstInitVal
   }
   ;
 
+VarDecl 
+  : BType VarDefList ';' {
+    auto ast = new VarDeclAST();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->vardef_vec = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    $$ = ast;
+  }
+  ;
+
+VarDefList 
+  : VarDef {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | VarDefList ',' VarDef {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+
+VarDef 
+  : IDENT {
+    auto ast = new VarDefAST();
+    ast->tag = VarDefAST::IDENT;
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  | IDENT '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->tag = VarDefAST::IDENT_EQ_VAL;
+    ast->ident = *unique_ptr<string>($1);
+    ast->initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+InitVal
+  : Exp {
+    auto ast = new InitValAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
 
 Number
   : INT_CONST {

@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cassert>
 #include "symbol_table.h"
 
 class BaseAST;
@@ -206,13 +207,13 @@ class BlockItemAST : public BaseAST {
     int eval() const override {return 0;}
 };
 
-// Decl ::= ConstDecl;
+// Decl ::= ConstDecl | VarDecl;
 class DeclAST : public BaseAST {
  public:
-    std::unique_ptr<BaseAST> const_decl;
+    std::unique_ptr<BaseAST> const_var_decl;
     void Dump() const override {}
     std::string DumpIR() const override {
-        const_decl->DumpIR();
+        const_var_decl->DumpIR();
         return "";
     }
     int eval() const override {return 0;}
@@ -272,19 +273,39 @@ class VarDeclAST : public BaseAST {
     std::unique_ptr<BaseAST> btype;
     std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> vardef_vec; 
     void Dump() const override {}
-    std::string DumpIR() const override {return "";}
+    std::string DumpIR() const override {
+        for(auto& vardef : *vardef_vec) {
+            vardef->DumpIR();
+        }
+        return "";
+    }
     int eval() const override {return 0;}
 };
 
 // VarDef ::= IDENT | IDENT "=" InitVal;
 class VarDefAST : public BaseAST {
  public:
-    enum TAG {IDENT, IEDNT_EQ_VAL};
+    enum TAG {IDENT, IDENT_EQ_VAL};
     TAG tag;
     std::string ident;
     std::unique_ptr<BaseAST> initval;
     void Dump() const override {}
-    std::string DumpIR() const override {return "";}
+    std::string DumpIR() const override {
+        // @x = alloc i32
+        std::cout << "  @" << ident << " = alloc i32\n";
+        // store 10, @x
+        if(tag == IDENT_EQ_VAL) {
+            std::string num = initval->DumpIR();
+            if(!num.empty()) {
+                std::cout << "  store " << num << ", @" << ident;
+            } else {
+                std::cout << "  store %" << global_reg - 1 << ", @" <<ident;
+            }
+            std::cout << std::endl;
+        }
+        symbol_table.insert(ident, VARIABLE, 0);
+        return "";
+    } 
     int eval() const override {return 0;}
 };
 
@@ -293,21 +314,29 @@ class InitValAST : public BaseAST {
  public:
     std::unique_ptr<BaseAST> exp;
     void Dump() const override {}
-    std::string DumpIR() const override {return "";}
-    int eval() const override {return 0;}
+    std::string DumpIR() const override {
+        return exp->DumpIR();
+    }
+    int eval() const override {
+        return exp->eval();
+    }
 };
 
+// LVal ::= IDENT
 class LValAST : public BaseAST {
 public:
     std::string ident;
     void Dump() const override {}
     std::string DumpIR() const override {
+        assert(symbol_table.exist(ident));
         auto symb = symbol_table.query(ident);
         if(symb->type == CONSTANT) {
             return std::to_string(symb->val);
         }
         else if(symb->type == VARIABLE) {
-            ;
+            // load @x
+            std::cout << "  %" << global_reg << " = load @" << ident << std::endl;
+            ++global_reg; 
         }
         return "";
     }
@@ -334,11 +363,26 @@ class StmtAST : public BaseAST {
 
     std::string DumpIR() const override {
         std::string num = exp->DumpIR();
-        if(!num.empty()) {
-            std::cout << "  ret " << num << std::endl;
-        } else {
-            std::cout << "  ret %" << global_reg - 1 << std::endl;
+        switch(tag) {
+            case RETURN:
+                if(!num.empty()) {
+                    std::cout << "  ret " << num << std::endl;
+                } else {
+                    std::cout << "  ret %" << global_reg - 1 << std::endl;
+                }
+                break;
+            case ASSIGN:
+                if(!num.empty()) {
+                    std::cout << "  store " << num << ", @";
+                } else {
+                    std::cout << "  store %" << global_reg - 1 <<", @";
+                }
+                std::cout << dynamic_cast<LValAST*>(lval.get())->ident;
+                std::cout << std::endl;
+                break;
+            default: break;
         }
+
         return "";
     }
 
@@ -384,7 +428,7 @@ class PrimaryExpAST : public BaseAST {
                 std::cout << " )";
                 break;
             case LVAL:
-                lval->DumpIR();
+                lval->Dump();
                 break;
             case NUMBER:
                 std::cout << number;

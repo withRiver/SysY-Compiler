@@ -45,4 +45,14 @@ public:
     void clear() {
         table.clear();
     }
+
+    void print() {
+        std::cout << "IDENT\tTYPE\tVALUE\n";
+        for(const auto& [ident, symbol] : table) {
+            std::cout << ident << "\t";
+            std::cout << ((symbol->type == CONSTANT) ? "CONSTANT" : "VARIABLE") << "\t";
+            std::cout << symbol->val << std::endl;
+        }
+        std::cout <<std::endl;
+    }
 };
