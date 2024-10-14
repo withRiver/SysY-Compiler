@@ -941,7 +941,7 @@ class ConstExpAST : public BaseAST {
 public:
     std::unique_ptr<BaseAST> exp;
     void Dump() const override {}
-    std::string DumpIR() const override {return "";}
+    std::string DumpIR() const override {return exp->DumpIR();}
     int eval() const override {
         return exp->eval();
     } 
