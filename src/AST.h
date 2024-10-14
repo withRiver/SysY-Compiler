@@ -176,9 +176,15 @@ class BlockAST : public BaseAST {
     void Dump() const override { }
 
     std::string DumpIR() const override {
-        std::cout << "%entry:\n";
+        int blockNo = 0;
+        std::cout << "%entry" << ++blockNo << ":\n";
+        int index = 0;
         for(auto& blockitem : *blockitem_vec) {
-            blockitem->DumpIR();
+            std::string str = blockitem->DumpIR();
+            if(str == "RETURN" && index != blockitem_vec->size() - 1) {
+                std::cout << "%entry" << ++blockNo << ":\n";    
+            }
+            ++index;
         }
         return "";
     }
@@ -198,7 +204,7 @@ class BlockItemAST : public BaseAST {
     std::string DumpIR() const override {
         switch(tag) {
             case DECL: decl->DumpIR(); break;
-            case STMT: stmt->DumpIR(); break;
+            case STMT: return stmt->DumpIR(); break;
             default: break;
         }
         return "";
@@ -370,6 +376,7 @@ class StmtAST : public BaseAST {
                 } else {
                     std::cout << "  ret %" << global_reg - 1 << std::endl;
                 }
+                return "RETURN";
                 break;
             case ASSIGN:
                 if(!num.empty()) {
