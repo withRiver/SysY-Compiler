@@ -49,16 +49,13 @@ LOrExp      ::= LAndExp | LOrExp "||" LAndExp;
 
 //使用到的寄存器编号
 static int global_reg = 0;
-//将字符op对应到其IR表示
-static std::unordered_map<char, std::string> op2IR = {
-    {'+', "add"}, 
-    {'-', "sub"},
-    {'*', "mul"},
-    {'/', "div"},
-    {'%', "mod"}
-};
-//将字符串op对应到其IR表示
-static std::unordered_map<std::string, std::string> strop2IR = {
+//op对应到其IR表示
+static std::unordered_map<std::string, std::string> op2IR = {
+    {"+", "add"}, 
+    {"-", "sub"},
+    {"*", "mul"},
+    {"/", "div"},
+    {"%", "mod"},
     {"<", "lt"},
     {">", "gt"},
     {"<=", "le"},
@@ -238,7 +235,7 @@ class UnaryExpAST : public BaseAST {
     enum TAG { PRIMARY_EXP, OP_UNARY_EXP};
     TAG tag;
     std::unique_ptr<BaseAST> primary_exp;
-    char unary_op;
+    std::string unary_op;
     std::unique_ptr<BaseAST> unary_exp;
 
     void Dump() const override {
@@ -265,7 +262,7 @@ class UnaryExpAST : public BaseAST {
                 break;
             case OP_UNARY_EXP:
                 num = unary_exp->DumpIR();
-                if(unary_op == '+') {
+                if(unary_op == "+") {
                     if(!num.empty()) {
                         return num;
                     }
@@ -273,7 +270,7 @@ class UnaryExpAST : public BaseAST {
                         ;
                     }
                 }
-                if(unary_op == '-') {
+                if(unary_op == "-") {
                     if(!num.empty()) {
                         std::cout << "  %" << global_reg << " = sub 0, " << num;
                     }
@@ -283,7 +280,7 @@ class UnaryExpAST : public BaseAST {
                     std::cout << std::endl;
                     ++global_reg;
                 }
-                else if(unary_op == '!') {
+                else if(unary_op == "!") {
                     if(!num.empty()) {
                         std::cout << "  %" << global_reg << " = eq 0, " << num; 
                     }
@@ -308,7 +305,7 @@ class MulExpAST : public BaseAST {
     enum Tag {UNARY_EXP, MULEXP_OP_UNARYEXP};
     Tag tag;
     std::unique_ptr<BaseAST> unary_exp;
-    char mul_op;
+    std::string mul_op;
     std::unique_ptr<BaseAST> mul_exp;
 
     void Dump() const override {}
@@ -354,7 +351,7 @@ class AddExpAST : public BaseAST {
     enum TAG {MUL_EXP, ADDEXP_OP_MULEXP};
     TAG tag;
     std::unique_ptr<BaseAST> mul_exp;
-    char add_op;
+    std::string add_op;
     std::unique_ptr<BaseAST> add_exp;
 
     void Dump() const override {}
@@ -416,7 +413,7 @@ class RelExpAST : public BaseAST {
                 left_reg = global_reg - 1;
                 right_num = add_exp->DumpIR();
                 right_reg = global_reg - 1;
-                std::cout << "  %" << global_reg << " = " << strop2IR[rel_op];
+                std::cout << "  %" << global_reg << " = " << op2IR[rel_op];
                 if(!left_num.empty()) {
                     std::cout << " " << left_num << ",";
                 } else {
@@ -462,7 +459,7 @@ public:
                 left_reg = global_reg - 1;
                 right_num = rel_exp->DumpIR();
                 right_reg = global_reg - 1;
-                std::cout << "  %" << global_reg << " = " << strop2IR[eq_op];
+                std::cout << "  %" << global_reg << " = " << op2IR[eq_op];
                 if(!left_num.empty()) {
                     std::cout << " " << left_num << ",";
                 } else {

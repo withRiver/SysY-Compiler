@@ -38,7 +38,7 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT RELOP EQOP
+%token <str_val> IDENT UNARYADDOP MULOP RELOP EQOP
 %token <int_val> INT_CONST
 %token LAND LOR
 
@@ -46,7 +46,6 @@ using namespace std;
 %type <ast_val> FuncDef FuncType Block Stmt 
 %type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
 %type <int_val> Number
-%type <char_val> UnaryOp MulOp AddOp
 
 %%
 
@@ -113,17 +112,6 @@ Number
   }
   ;
 
-UnaryOp 
-  : '+' {
-    $$ = '+';
-  }
-  | '-' {
-    $$ = '-';
-  }
-  | '!'{
-    $$ = '!';
-  }
-  ;
 
 Exp
   : LOrExp {
@@ -155,10 +143,10 @@ UnaryExp
     unary_exp->primary_exp = unique_ptr<BaseAST>($1);
     $$ = unary_exp;
   }
-  | UnaryOp UnaryExp {
+  | UNARYADDOP UnaryExp {
     auto unary_exp = new UnaryExpAST();
     unary_exp->tag = UnaryExpAST::OP_UNARY_EXP;
-    unary_exp->unary_op = $1;
+    unary_exp->unary_op = *unique_ptr<string>($1);
     unary_exp->unary_exp = unique_ptr<BaseAST>($2);
     $$ = unary_exp;
   }
@@ -171,25 +159,13 @@ MulExp
     mul_exp->unary_exp = unique_ptr<BaseAST>($1);
     $$ = mul_exp;
   }
-  | MulExp MulOp UnaryExp {
+  | MulExp MULOP UnaryExp {
     auto mul_exp = new MulExpAST();
     mul_exp->tag = MulExpAST::MULEXP_OP_UNARYEXP;
     mul_exp->mul_exp = unique_ptr<BaseAST>($1);
-    mul_exp->mul_op = $2;
+    mul_exp->mul_op = *unique_ptr<string>($2);
     mul_exp->unary_exp = unique_ptr<BaseAST>($3);
     $$ = mul_exp;
-  }
-  ;
-
-MulOp 
-  : '*' {
-    $$ = '*';
-  }
-  | '/' {
-    $$ = '/';
-  }
-  | '%' {
-    $$ = '%';
   }
   ;
 
@@ -200,22 +176,13 @@ AddExp
     add_exp->mul_exp = unique_ptr<BaseAST>($1);
     $$ = add_exp;
   }
-  | AddExp AddOp MulExp {
+  | AddExp UNARYADDOP MulExp {
     auto add_exp = new AddExpAST();
     add_exp->tag = AddExpAST::ADDEXP_OP_MULEXP;
     add_exp->add_exp = unique_ptr<BaseAST>($1);
-    add_exp->add_op = $2;
+    add_exp->add_op = *unique_ptr<string>($2);
     add_exp->mul_exp = unique_ptr<BaseAST>($3);
     $$ = add_exp;
-  }
-  ;
-
-AddOp
-  : '+' {
-    $$ = '+';
-  }
-  | '-' {
-    $$ = '-';
   }
   ;
 

@@ -28,7 +28,9 @@ Decimal       [1-9][0-9]*
 Octal         0[0-7]*
 Hexadecimal   0[xX][0-9a-fA-F]+
 
-/* 等于、比较运算符*/
+/* 运算符*/
+UnaryAddOp       [+\-!]
+MulOp         [*/%]
 RelOp         [<>]=?
 EqOp          [!=]=
 
@@ -42,6 +44,8 @@ EqOp          [!=]=
 "return"        { return RETURN; }
 "&&"            { return LAND; }
 "||"            { return LOR; }
+{UnaryAddOp}       { yylval.str_val = new string(yytext); return UNARYADDOP; }
+{MulOp}         { yylval.str_val = new string(yytext); return MULOP; }
 {RelOp}         { yylval.str_val = new string(yytext); return RELOP; }
 {EqOp}          { yylval.str_val = new string(yytext); return EQOP; }
 
