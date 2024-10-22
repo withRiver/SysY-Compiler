@@ -186,8 +186,8 @@ class BlockAST : public BaseAST {
         int index = 0;
         for(auto& blockitem : *blockitem_vec) {
             std::string str = blockitem->DumpIR();
-            if(str == "RETURN" && index != blockitem_vec->size() - 1) {
-            //    std::cout << "%entry" << ++blockNo << ":\n";    
+            if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
+                std::cout << "%entry" << ++blockNo << ":\n";    
             }
             ++index;
         }
