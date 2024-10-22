@@ -54,7 +54,9 @@ FuncType      ::= "int";
 Block         ::= "{" {BlockItem} "}";
 BlockItem     ::= Decl | Stmt;
 Stmt          ::= LVal "=" Exp ";"
-                | "return" Exp ";";
+                | [Exp] ";"
+                | Block
+                | "return" [Exp] ";";
 
 Exp           ::= LOrExp;
 LVal          ::= IDENT;
@@ -90,7 +92,7 @@ static std::unordered_map<std::string, std::string> op2IR = {
     {"!=", "ne"},
 };
 //符号表
-static SymbolTable symbol_table;
+static SymbolTableList symbol_table;
 
 class BaseAST {
  public:
@@ -114,10 +116,10 @@ class CompUnitAST : public BaseAST {
     std::string DumpIR() const override {
         //DumpIR开始时，将reg重置为0
         global_reg = 0;
-        //DumpIR开始时, 将symbol_table清空
-        symbol_table.clear();
+        //DumpIR开始时, 初始化symbol_table
+        symbol_table = SymbolTableList();
+        symbol_table.init();
         func_def->DumpIR();
-        std::cout << std::endl;
         return "";
     }
 
@@ -141,9 +143,11 @@ class FuncDefAST : public BaseAST {
     std::string DumpIR() const override {
         std::cout << "fun @" << ident << "(): "; 
         func_type->DumpIR();
-        std::cout << " {\n";
+        std::cout << "{\n";
+        std::cout << "%entry:\n";
         block->DumpIR();
         std::cout << "}";
+        std::cout << std::endl;
         return "";
     }
 
@@ -176,8 +180,9 @@ class BlockAST : public BaseAST {
     void Dump() const override { }
 
     std::string DumpIR() const override {
+        // 进入一个新的作用域
+        symbol_table.enter_scope();
         int blockNo = 0;
-        std::cout << "%entry" << ++blockNo << ":\n";
         int index = 0;
         for(auto& blockitem : *blockitem_vec) {
             std::string str = blockitem->DumpIR();
@@ -186,6 +191,8 @@ class BlockAST : public BaseAST {
             }
             ++index;
         }
+        // 退出该作用域
+        symbol_table.exit_scope();
         return "";
     }
 
@@ -298,14 +305,16 @@ class VarDefAST : public BaseAST {
     void Dump() const override {}
     std::string DumpIR() const override {
         // @x = alloc i32
-        std::cout << "  @" << ident << " = alloc i32\n";
+        int scope_id = symbol_table.current_scope_id();
+        std::string name = ident + "_" + std::to_string(scope_id);
+        std::cout << "  @" << name << " = alloc i32\n";
         // store 10, @x
         if(tag == IDENT_EQ_VAL) {
             std::string num = initval->DumpIR();
             if(!num.empty()) {
-                std::cout << "  store " << num << ", @" << ident;
+                std::cout << "  store " << num << ", @" << name;
             } else {
-                std::cout << "  store %" << global_reg - 1 << ", @" <<ident;
+                std::cout << "  store %" << global_reg - 1 << ", @" << name;
             }
             std::cout << std::endl;
         }
@@ -336,12 +345,14 @@ public:
     std::string DumpIR() const override {
         assert(symbol_table.exist(ident));
         auto symb = symbol_table.query(ident);
+        int scope = symbol_table.query_scope(ident);
         if(symb->type == CONSTANT) {
             return std::to_string(symb->val);
         }
         else if(symb->type == VARIABLE) {
             // load @x
-            std::cout << "  %" << global_reg << " = load @" << ident << std::endl;
+            std::cout << "  %" << global_reg << " = load @" << ident <<"_" << scope;
+            std::cout << std::endl;
             ++global_reg; 
         }
         return "";
@@ -352,13 +363,14 @@ public:
     }
 };
 
-// Stmt ::= LVal "=" Exp ";" | "return" Exp ";";
+// Stmt ::= LVal "=" Exp ";" | [Exp] ";" | Block | "return" [Exp] ";";
 class StmtAST : public BaseAST {
  public:
-    enum TAG {ASSIGN, RETURN};
+    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY};
     TAG tag;
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> block;
 
     void Dump() const override {
         std::cout << "StmtAST { ";
@@ -368,9 +380,10 @@ class StmtAST : public BaseAST {
     }
 
     std::string DumpIR() const override {
-        std::string num = exp->DumpIR();
+        std::string num;
         switch(tag) {
-            case RETURN:
+            case RETURN_EXP:
+                num = exp->DumpIR();
                 if(!num.empty()) {
                     std::cout << "  ret " << num << std::endl;
                 } else {
@@ -379,14 +392,23 @@ class StmtAST : public BaseAST {
                 return "RETURN";
                 break;
             case ASSIGN:
+                num = exp->DumpIR();
                 if(!num.empty()) {
                     std::cout << "  store " << num << ", @";
                 } else {
                     std::cout << "  store %" << global_reg - 1 <<", @";
                 }
                 std::cout << dynamic_cast<LValAST*>(lval.get())->ident;
+                std::cout << "_" << symbol_table.query_scope(dynamic_cast<LValAST*>(lval.get())->ident);
                 std::cout << std::endl;
                 break;
+            case EMPTY: break;
+            case RETURN_EMPTY:
+                std::cout << "  ret" << std::endl; 
+                return "RETURN"; 
+                break;
+            case EXP: exp->DumpIR(); break;
+            case BLOCK: block->DumpIR(); break;
             default: break;
         }
 

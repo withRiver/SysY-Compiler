@@ -132,7 +132,7 @@ BlockItem
 Stmt
   : RETURN Exp ';' {
     auto stmt = new StmtAST();
-    stmt->tag = StmtAST::RETURN;
+    stmt->tag = StmtAST::RETURN_EXP;
     stmt->exp = unique_ptr<BaseAST>($2);
     $$ = stmt;
   }
@@ -143,6 +143,28 @@ Stmt
     stmt->exp = unique_ptr<BaseAST>($3);
     $$ = stmt;
   }  
+  | RETURN ';' {
+    auto stmt = new StmtAST();
+    stmt->tag = StmtAST::RETURN_EMPTY;
+    $$ = stmt;
+  }
+  | ';' {
+    auto stmt = new StmtAST();
+    stmt->tag = StmtAST::EMPTY;
+    $$ = stmt;
+  }
+  | Exp ';' {
+    auto stmt = new StmtAST();
+    stmt->tag = StmtAST::EXP;
+    stmt->exp = unique_ptr<BaseAST>($1);
+    $$ = stmt;
+  }
+  | Block {
+    auto stmt = new StmtAST();
+    stmt->tag = StmtAST::BLOCK;
+    stmt->block = unique_ptr<BaseAST>($1);
+    $$ = stmt;
+  }
   ;
 
 Decl
