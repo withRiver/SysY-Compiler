@@ -95,6 +95,8 @@ static std::unordered_map<std::string, std::string> op2IR = {
 static SymbolTableList symbol_table;
 //entry编号
 static int entryNo = 0;
+
+
 class BaseAST {
  public:
     virtual ~BaseAST() = default;    
@@ -116,7 +118,7 @@ class CompUnitAST : public BaseAST {
 
     std::string DumpIR() const override {
         //DumpIR开始时，将reg重置为0
-        global_reg = 0;
+        global_reg = 0; entryNo = 0;
         //DumpIR开始时, 初始化symbol_table
         symbol_table = SymbolTableList();
         symbol_table.init();
@@ -183,13 +185,16 @@ class BlockAST : public BaseAST {
     std::string DumpIR() const override {
         // 进入一个新的作用域
         symbol_table.enter_scope();
-        int index = 0;
+        //int index = 0;
         for(auto& blockitem : *blockitem_vec) {
             std::string str = blockitem->DumpIR();
-            if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
-                std::cout << "%entry" << ++entryNo << ":\n";    
+            if(str == "RETURN") {
+                return "RETURN";
             }
-            ++index;
+            //if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
+                //std::cout << "%entry" << ++entryNo << ":\n";    
+            //}
+            //++index;
         }
         // 退出该作用域
         symbol_table.exit_scope();
@@ -407,8 +412,8 @@ class StmtAST : public BaseAST {
                 std::cout << "  ret" << std::endl; 
                 return "RETURN"; 
                 break;
-            case EXP: exp->DumpIR(); break;
-            case BLOCK: block->DumpIR(); break;
+            case EXP: return exp->DumpIR(); break;
+            case BLOCK: return block->DumpIR(); break;
             default: break;
         }
 
