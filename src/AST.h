@@ -93,7 +93,8 @@ static std::unordered_map<std::string, std::string> op2IR = {
 };
 //符号表
 static SymbolTableList symbol_table;
-
+//entry编号
+static int entryNo = 0;
 class BaseAST {
  public:
     virtual ~BaseAST() = default;    
@@ -182,12 +183,11 @@ class BlockAST : public BaseAST {
     std::string DumpIR() const override {
         // 进入一个新的作用域
         symbol_table.enter_scope();
-        int blockNo = 0;
         int index = 0;
         for(auto& blockitem : *blockitem_vec) {
             std::string str = blockitem->DumpIR();
             if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
-                std::cout << "%entry" << ++blockNo << ":\n";    
+                std::cout << "%entry" << ++entryNo << ":\n";    
             }
             ++index;
         }
