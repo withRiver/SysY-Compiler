@@ -774,6 +774,7 @@ public:
 };
 
 // LAndExp ::= EqExp | LAndExp "&&" EqExp;
+// 短路求值: int andRes = 0; if (LAndExp != 0) {andRes = EqExp != 0;}
 class LAndExpAST : public BaseAST {
  public:
     enum TAG {EQ_EXP, LANDEXP_AND_EQEXP};
@@ -785,36 +786,46 @@ class LAndExpAST : public BaseAST {
 
     std::string DumpIR() const override {
         std::string left_num, right_num;
-        int left_reg, right_reg;
+        int cur_ifNo = global_if;
+        std::string ident;
         switch(tag) {
             case EQ_EXP:
                 return eq_exp->DumpIR();
                 break;
             case LANDEXP_AND_EQEXP:
+                ++global_if;
+                ident = "@andRes_" + std::to_string(cur_ifNo);
+                // @andRes_2 = alloc i32
+                // store 0, @andRes_2 
+                std::cout << "  @andRes_" << cur_ifNo << " = alloc i32" << std::endl;
+                std::cout << "  store 0, @andRes_" << cur_ifNo << std::endl;
+                symbol_table.insert(ident, VARIABLE, 0);
                 left_num = land_exp->DumpIR();
-                left_reg = global_reg - 1;
-                right_num = eq_exp->DumpIR();
-                right_reg = global_reg - 1;
-                // A&&B = A & B = (A!=0) & (B!=0)
-                std::cout << "  %" << global_reg << " = ne ";
+                // %3 = ne %2, 0
                 if(!left_num.empty()) {
-                    std::cout << left_num << ", 0" << std::endl;
+                    std::cout << "  %" << global_reg << " = ne " << left_num << ", 0" << std::endl;
                 } else {
-                    std::cout << "%" << left_reg << ", 0" << std::endl;
+                    std::cout << "  %" << global_reg << " = ne %" << global_reg - 1 << ", 0" << std::endl;
                 }
-                left_reg = global_reg;
                 ++global_reg;
-                std::cout << "  %" << global_reg << " = ne ";
-                if(!right_num.empty()) {
-                    std::cout << right_num << ", 0" << std::endl;
-                } else {
-                    std::cout << "%" << right_reg << ", 0" <<std::endl;
-                }
-                right_reg = global_reg;
-                ++global_reg;
-                std::cout << "  %" << global_reg << " = and ";
-                std::cout << "%" << left_reg <<", %" << right_reg;
+                // br %3, %then, %end
+                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
+                // %then:
+                std::cout << "%then_" << cur_ifNo << ":\n";
+                right_num = eq_exp->DumpIR();
+                if(!right_num.empty()) {
+                    std::cout << "  %" << global_reg << " = ne " << right_num << ", 0" << std::endl;
+                } else {
+                    std::cout << "  %" << global_reg << " = ne %" << global_reg - 1 << ", 0" << std::endl;
+                }
+                ++global_reg;
+                std::cout << "  store %" << global_reg - 1 << ", @andRes_" << cur_ifNo << std::endl;  
+                std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                std::cout << std::endl;
+                // %end:
+                std::cout << "%end_" << cur_ifNo << ":\n";
+                std::cout << "  %" << global_reg << " = load @andRes_" << cur_ifNo << std::endl;
                 ++global_reg;
                 break;
             default:
@@ -831,8 +842,9 @@ class LAndExpAST : public BaseAST {
                 break;
             case LANDEXP_AND_EQEXP:
                 left = land_exp->eval();
+                if(left == 0) {return 0;}
                 right = eq_exp->eval();
-                return left && right;
+                return right;
                 break;
             default: break;
         }
@@ -841,6 +853,7 @@ class LAndExpAST : public BaseAST {
 };
 
 // LOrExp  ::= LAndExp | LOrExp "||" LAndExp;
+// 短路求值: int orRes = 1; if (LOrExp == 0) {orRes = LAndExp != 0;} 
 class LOrExpAST : public BaseAST {
  public:
     enum TAG {LAND_EXP, LOREXP_OR_LANDEXP};
@@ -852,36 +865,46 @@ class LOrExpAST : public BaseAST {
 
     std::string DumpIR() const override {
         std::string left_num, right_num;
-        int left_reg, right_reg;
+        int cur_ifNo = global_if;
+        std::string ident;
         switch(tag) {
             case LAND_EXP:
                 return land_exp->DumpIR();
                 break;
             case LOREXP_OR_LANDEXP:
+                ++global_if;
+                ident = "@orRes_" + std::to_string(cur_ifNo);
+                // @orRes_2 = alloc i32
+                // store 1, @orRes_2 
+                std::cout << "  @orRes_" << cur_ifNo << " = alloc i32" << std::endl;
+                std::cout << "  store 1, @orRes_" << cur_ifNo << std::endl;
+                symbol_table.insert(ident, VARIABLE, 0);
                 left_num = lor_exp->DumpIR();
-                left_reg = global_reg - 1;
-                right_num = land_exp->DumpIR();
-                right_reg = global_reg - 1;
-                // A||B = A | B = (A!=0) | (B!=0)
-                std::cout << "  %" << global_reg << " = ne ";
+                // %3 = eq %2, 0
                 if(!left_num.empty()) {
-                    std::cout << left_num << ", 0" << std::endl;
+                    std::cout << "  %" << global_reg << " = eq " << left_num << ", 0" << std::endl;
                 } else {
-                    std::cout << "%" << left_reg << ", 0" << std::endl;
+                    std::cout << "  %" << global_reg << " = eq %" << global_reg - 1 << ", 0" << std::endl;
                 }
-                left_reg = global_reg;
                 ++global_reg;
-                std::cout << "  %" << global_reg << " = ne ";
-                if(!right_num.empty()) {
-                    std::cout << right_num << ", 0" << std::endl;
-                } else {
-                    std::cout << "%" << right_reg << ", 0" <<std::endl;
-                }
-                right_reg = global_reg;
-                ++global_reg;
-                std::cout << "  %" << global_reg << " = or ";
-                std::cout << "%" << left_reg <<", %" << right_reg;
+                // br %3, %then, %end
+                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
+                // %then:
+                std::cout << "%then_" << cur_ifNo << ":\n";
+                right_num = land_exp->DumpIR();
+                if(!right_num.empty()) {
+                    std::cout << "  %" << global_reg << " = ne " << right_num << ", 0" << std::endl;
+                } else {
+                    std::cout << "  %" << global_reg << " = ne %" << global_reg - 1 << ", 0" << std::endl;
+                }
+                ++global_reg;
+                std::cout << "  store %" << global_reg - 1 << ", @orRes_" << cur_ifNo << std::endl;  
+                std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                std::cout << std::endl;
+                // %end:
+                std::cout << "%end_" << cur_ifNo << ":\n";
+                std::cout << "  %" << global_reg << " = load @orRes_" << cur_ifNo << std::endl;
                 ++global_reg;
                 break;
             default:
@@ -898,8 +921,9 @@ class LOrExpAST : public BaseAST {
                 break;
             case LOREXP_OR_LANDEXP:
                 left = lor_exp->eval();
+                if(left == 1) {return 1;}
                 right = land_exp->eval();
-                return left || right;
+                return right;
                 break;
             default: break;
         }
