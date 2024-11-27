@@ -95,8 +95,6 @@ static std::unordered_map<std::string, std::string> op2IR = {
 static SymbolTableList symbol_table;
 //entry编号
 static int entryNo = 0;
-//entry是否已经return
-static int has_returned = 0;
 //if语句的数量，用于给if语句产生的基本块取名
 static int global_if = 0;
 
@@ -120,8 +118,6 @@ class CompUnitAST : public BaseAST {
         // 初始化symbol_table
         symbol_table = SymbolTableList();
         symbol_table.init();
-        // 初始化has_returned
-        has_returned = 0;
         // 将ifNo置0
         global_if = 0;
         func_def->DumpIR();
@@ -144,7 +140,6 @@ class FuncDefAST : public BaseAST {
         func_type->DumpIR();
         std::cout << "{\n";
         std::cout << "%entry:\n";
-        has_returned = 0;
         block->DumpIR();
         std::cout << "}";
         std::cout << std::endl;
@@ -179,10 +174,12 @@ class BlockAST : public BaseAST {
         // 进入一个新的作用域
         symbol_table.enter_scope();
         //int index = 0;
+        int is_ret = 0;
         for(auto& blockitem : *blockitem_vec) {
             std::string str = blockitem->DumpIR();
             if(str == "RETURN") {
-                return "RETURN";
+                is_ret = 1;
+                break;
             }
             //if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
                 //std::cout << "%entry" << ++entryNo << ":\n";    
@@ -191,7 +188,7 @@ class BlockAST : public BaseAST {
         }
         // 退出该作用域
         symbol_table.exit_scope();
-        return "";
+        return is_ret ? "RETURN" : "";
     }
 
     int eval() const override {return 0;} 
@@ -948,7 +945,6 @@ class StmtAST : public BaseAST {
                 } else {
                     std::cout << "  ret %" << global_reg - 1 << std::endl;
                 }
-                has_returned = 1;
                 return "RETURN";
                 break;
             case ASSIGN:
@@ -965,7 +961,6 @@ class StmtAST : public BaseAST {
             case EMPTY: break;
             case RETURN_EMPTY:
                 std::cout << "  ret" << std::endl; 
-                has_returned = 1;
                 return "RETURN"; 
                 break;
             case EXP: return exp->DumpIR(); break;
