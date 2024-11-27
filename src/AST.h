@@ -95,7 +95,10 @@ static std::unordered_map<std::string, std::string> op2IR = {
 static SymbolTableList symbol_table;
 //entry编号
 static int entryNo = 0;
-
+//entry是否已经return
+static int has_returned = 0;
+//if语句的数量，用于给if语句产生的基本块取名
+static int global_if = 0;
 
 class BaseAST {
  public:
@@ -109,19 +112,18 @@ class CompUnitAST : public BaseAST {
  public:
     std::unique_ptr<BaseAST> func_def;
 
-    void Dump() const override {
-        std::cout << "CompUnitAST { ";
-        func_def->Dump();
-        std::cout << " }";
-        std::cout << std::endl;
-    }
+    void Dump() const override {}
 
     std::string DumpIR() const override {
-        //DumpIR开始时，将reg重置为0
+        // 将reg置0
         global_reg = 0; entryNo = 0;
-        //DumpIR开始时, 初始化symbol_table
+        // 初始化symbol_table
         symbol_table = SymbolTableList();
         symbol_table.init();
+        // 初始化has_returned
+        has_returned = 0;
+        // 将ifNo置0
+        global_if = 0;
         func_def->DumpIR();
         return "";
     }
@@ -135,19 +137,14 @@ class FuncDefAST : public BaseAST {
     std::string ident;
     std::unique_ptr<BaseAST> block;
 
-    void Dump() const override {
-        std::cout << "FuncDefAST { ";
-        func_type->Dump();
-        std::cout << ", " << ident << ", ";
-        block->Dump();
-        std::cout<<" }";
-    }
+    void Dump() const override {}
 
     std::string DumpIR() const override {
         std::cout << "fun @" << ident << "(): "; 
         func_type->DumpIR();
         std::cout << "{\n";
         std::cout << "%entry:\n";
+        has_returned = 0;
         block->DumpIR();
         std::cout << "}";
         std::cout << std::endl;
@@ -161,11 +158,7 @@ class FuncTypeAST : public BaseAST {
  public:
     std::string type = "int";
 
-    void Dump() const override {
-        std::cout << "FuncTypeAST { ";
-        std::cout << type;
-        std::cout << " }";
-    }
+    void Dump() const override {}
 
     std::string DumpIR() const override {
         std::cout << "i32 ";
@@ -180,7 +173,7 @@ class BlockAST : public BaseAST {
  public:
     std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> blockitem_vec;   
 
-    void Dump() const override { }
+    void Dump() const override {}
 
     std::string DumpIR() const override {
         // 进入一个新的作用域
@@ -224,6 +217,7 @@ class BlockItemAST : public BaseAST {
 
     int eval() const override {return 0;}
 };
+
 
 // Decl ::= ConstDecl | VarDecl;
 class DeclAST : public BaseAST {
@@ -368,60 +362,6 @@ public:
     }
 };
 
-// Stmt ::= LVal "=" Exp ";" | [Exp] ";" | Block | "return" [Exp] ";";
-class StmtAST : public BaseAST {
- public:
-    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY};
-    TAG tag;
-    std::unique_ptr<BaseAST> lval;
-    std::unique_ptr<BaseAST> exp;
-    std::unique_ptr<BaseAST> block;
-
-    void Dump() const override {
-        std::cout << "StmtAST { ";
-        std::cout << "return ";
-        exp->Dump();
-        std::cout<<" }";
-    }
-
-    std::string DumpIR() const override {
-        std::string num;
-        switch(tag) {
-            case RETURN_EXP:
-                num = exp->DumpIR();
-                if(!num.empty()) {
-                    std::cout << "  ret " << num << std::endl;
-                } else {
-                    std::cout << "  ret %" << global_reg - 1 << std::endl;
-                }
-                return "RETURN";
-                break;
-            case ASSIGN:
-                num = exp->DumpIR();
-                if(!num.empty()) {
-                    std::cout << "  store " << num << ", @";
-                } else {
-                    std::cout << "  store %" << global_reg - 1 <<", @";
-                }
-                std::cout << dynamic_cast<LValAST*>(lval.get())->ident;
-                std::cout << "_" << symbol_table.query_scope(dynamic_cast<LValAST*>(lval.get())->ident);
-                std::cout << std::endl;
-                break;
-            case EMPTY: break;
-            case RETURN_EMPTY:
-                std::cout << "  ret" << std::endl; 
-                return "RETURN"; 
-                break;
-            case EXP: return exp->DumpIR(); break;
-            case BLOCK: return block->DumpIR(); break;
-            default: break;
-        }
-
-        return "";
-    }
-
-    int eval() const override {return 0;}
-};
 
 //Exp ::= LOrExp;
 class ExpAST : public BaseAST {
@@ -979,4 +919,110 @@ public:
     int eval() const override {
         return exp->eval();
     } 
+};
+
+// Stmt ::= LVal "=" Exp ";" | [Exp] ";" | Block | "return" [Exp] ";" ;
+//      | = "if" "(" Exp ")" Stmt ["else" Stmt]
+class StmtAST : public BaseAST {
+ public:
+    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY, IF, IFELSE};
+    TAG tag;
+    std::unique_ptr<BaseAST> lval;
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> block;
+    std::unique_ptr<BaseAST> if_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        std::string num;
+        int cur_ifNo = global_if;
+        int end_required = 0; // 判断if是否需要%end
+        // std::string stmt_ret; // if_stmt和else_stmt的dumpIR()返回值
+        switch(tag) {
+            case RETURN_EXP:
+                num = exp->DumpIR();
+                if(!num.empty()) {
+                    std::cout << "  ret " << num << std::endl;
+                } else {
+                    std::cout << "  ret %" << global_reg - 1 << std::endl;
+                }
+                has_returned = 1;
+                return "RETURN";
+                break;
+            case ASSIGN:
+                num = exp->DumpIR();
+                if(!num.empty()) {
+                    std::cout << "  store " << num << ", @";
+                } else {
+                    std::cout << "  store %" << global_reg - 1 <<", @";
+                }
+                std::cout << dynamic_cast<LValAST*>(lval.get())->ident;
+                std::cout << "_" << symbol_table.query_scope(dynamic_cast<LValAST*>(lval.get())->ident);
+                std::cout << std::endl;
+                break;
+            case EMPTY: break;
+            case RETURN_EMPTY:
+                std::cout << "  ret" << std::endl; 
+                has_returned = 1;
+                return "RETURN"; 
+                break;
+            case EXP: return exp->DumpIR(); break;
+            case BLOCK: return block->DumpIR(); break;
+            case IF:
+                ++global_if;
+                end_required = 1; // if语句一定需要end
+                num = exp->DumpIR();
+                if(!num.empty()) {
+                    std::cout << "  br " << num << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                } else {
+                    std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                }
+                std::cout << std::endl;
+                std::cout << "%then_" << cur_ifNo << ":\n";
+                if(if_stmt->DumpIR() != "RETURN") {
+                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                }
+                std::cout << std::endl;
+                if(end_required) {
+                    std::cout << "%end_" << cur_ifNo << ":\n";
+                }
+                return end_required ? "" : "RETURN";
+                break; 
+            case IFELSE:
+                ++global_if;
+                num = exp->DumpIR();
+                if(!num.empty()) {
+                    cur_ifNo = global_if;
+                    ++global_if;
+                    std::cout << "  br " << num << ", %then_" << cur_ifNo << ", %else_" << cur_ifNo << std::endl;
+                } else {
+                    std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %else_" << cur_ifNo << std::endl;
+                }
+                std::cout << std::endl;
+                std::cout << "%then_" << cur_ifNo << ":\n";
+                if(if_stmt->DumpIR() != "RETURN") {
+                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                    end_required = 1;
+                }
+                std::cout << std::endl;
+                std::cout << "%else_" << cur_ifNo << ":\n";
+                if(else_stmt->DumpIR() != "RETURN") {
+                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;    
+                    end_required = 1;               
+                }
+                std::cout << std::endl;
+                if(end_required) {
+                    std::cout << "%end_" << cur_ifNo << ":\n";
+                }
+                return end_required ? "" : "RETURN";
+                break;                 
+            default: break;
+        }
+
+        return "";
+    }
+
+    int eval() const override {return 0;}
 };

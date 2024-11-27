@@ -37,7 +37,7 @@ int main(int argc, const char *argv[]) {
   assert(!yyparse_ret);
 
   // 调试Dump生成语法树
-  ast->Dump();
+  // ast->Dump();
 
   ofstream outFile(output);
   assert(output);

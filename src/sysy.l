@@ -45,6 +45,9 @@ EqOp          [!=]=
 "const"         { return CONST; }
 "&&"            { return LAND; }
 "||"            { return LOR; }
+"if"            { return IF; }
+"else"          { return ELSE; }
+
 {UnaryAddOp}       { yylval.str_val = new string(yytext); return UNARYADDOP; }
 {MulOp}         { yylval.str_val = new string(yytext); return MULOP; }
 {RelOp}         { yylval.str_val = new string(yytext); return RELOP; }
