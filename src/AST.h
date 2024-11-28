@@ -97,6 +97,8 @@ static SymbolTableList symbol_table;
 static int entryNo = 0;
 //if语句的数量，用于给if语句产生的基本块取名
 static int global_if = 0;
+//while语句的数量，用于给while语句产生的基本块取名
+//static int global_while = 0;
 
 class BaseAST {
  public:
@@ -946,13 +948,14 @@ public:
 //      | = "if" "(" Exp ")" Stmt ["else" Stmt]
 class StmtAST : public BaseAST {
  public:
-    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY, IF, IFELSE};
+    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY, IF, IFELSE, WHILE};
     TAG tag;
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
     std::unique_ptr<BaseAST> block;
     std::unique_ptr<BaseAST> if_stmt;
     std::unique_ptr<BaseAST> else_stmt;
+    std::unique_ptr<BaseAST> while_stmt;
 
     void Dump() const override {}
 

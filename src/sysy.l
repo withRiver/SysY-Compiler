@@ -47,6 +47,7 @@ EqOp          [!=]=
 "||"            { return LOR; }
 "if"            { return IF; }
 "else"          { return ELSE; }
+"while"         { return WHILE; }
 
 {UnaryAddOp}       { yylval.str_val = new string(yytext); return UNARYADDOP; }
 {MulOp}         { yylval.str_val = new string(yytext); return MULOP; }

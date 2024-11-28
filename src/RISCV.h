@@ -10,8 +10,8 @@
 
 // 栈帧 {inst, location}
 static std::unordered_map<koopa_raw_value_t, int> stack_frame;
-static int sf_size = 3200 ;
-static int sf_index = 3200;
+static int sf_size = 0 ;
+static int sf_index = 0;
 
 
 // 访问raw program
@@ -88,7 +88,7 @@ void Visit(const koopa_raw_function_t &func) {
   std::cout << func->name + 1 << ":" << std::endl;
 
   // 清空栈帧
-  sf_size = sf_index = 3200;
+  sf_size = sf_index = 0;
   stack_frame.clear();
   // 计算该函数的栈帧大小
   for(size_t i = 0; i < func->bbs.len; ++i) {
