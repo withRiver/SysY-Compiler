@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <cassert>
+#include <cstring>
 #include <unordered_map>
 #include "koopa.h"
 
@@ -32,6 +33,10 @@ void Visit(const koopa_raw_binary_t &binary, const koopa_raw_value_t &dest);
 void Visit(const koopa_raw_load_t &load, const koopa_raw_value_t &dest);
 // store 指令
 void Visit(const koopa_raw_store_t &store);
+// branch
+void Visit(const koopa_raw_branch_t &branch);
+//jump
+void Visit(const koopa_raw_jump_t &jump);
 
 // 将栈帧中value的值写到寄存器reg_name中
 void write_reg(const koopa_raw_value_t &value, const std::string &reg_name);
@@ -75,10 +80,9 @@ void Visit(const koopa_raw_slice_t &slice) {
 void Visit(const koopa_raw_function_t &func) {
   if(func->bbs.len == 0) return;
   // 执行一些其他的必要操作
-  std::cout << "  .text\n";
-  std::cout << "  .globl ";
-  std::string name = std::string(func->name + 1);
-  std::cout << name << "\n" << name << ":\n";
+  std::cout << "  .text" << std::endl;
+  std::cout << "  .globl " << func->name + 1 << std::endl;
+  std::cout << func->name + 1 << ":" << std::endl;
 
   // 清空栈帧
   sf_size = sf_index = 0;
@@ -109,8 +113,15 @@ void Visit(const koopa_raw_function_t &func) {
 // 访问基本块
 void Visit(const koopa_raw_basic_block_t &bb) {
   // 执行一些其他的必要操作
+  // 打印基本块入口
+  if(strncmp(bb->name + 1, "entry", 5) != 0) {
+    std::cout << bb->name + 1 << ":" << std::endl;
+  }
+
   // 访问所有指令
   Visit(bb->insts);
+
+  std::cout << std::endl;
 }
 
 // 访问指令
@@ -145,6 +156,12 @@ void Visit(const koopa_raw_value_t &value) {
       break;
     case KOOPA_RVT_BINARY:
       Visit(kind.data.binary, value);
+      break;
+    case KOOPA_RVT_BRANCH:
+      Visit(kind.data.branch);
+      break;
+    case KOOPA_RVT_JUMP:
+      Visit(kind.data.jump);
       break;
     case KOOPA_RVT_RETURN:
       Visit(kind.data.ret);
@@ -259,6 +276,18 @@ void Visit(const koopa_raw_return_t &ret) {
     std::cout << "  addi sp, sp, " << sf_size << std::endl;
   }
   std::cout << "  ret\n";
+}
+
+// branch
+void Visit(const koopa_raw_branch_t &branch) {
+  write_reg(branch.cond, "t0");
+  std::cout << "  bnez t0, " << branch.true_bb->name + 1 << std::endl;
+  std::cout << "  j " << branch.false_bb->name + 1 << std::endl;
+}
+
+// jump
+void Visit(const koopa_raw_jump_t &jump) {
+  std::cout << "  j " << jump.target->name + 1 << std::endl;
 }
 
 

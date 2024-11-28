@@ -139,7 +139,7 @@ class FuncDefAST : public BaseAST {
         std::cout << "fun @" << ident << "(): "; 
         func_type->DumpIR();
         std::cout << "{\n";
-        std::cout << "%entry:\n";
+        std::cout << "%entry_" << ident << ":\n";
         block->DumpIR();
         std::cout << "}";
         std::cout << std::endl;
