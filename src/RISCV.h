@@ -10,8 +10,8 @@
 
 // 栈帧 {inst, location}
 static std::unordered_map<koopa_raw_value_t, int> stack_frame;
-static int sf_size = 0 ;
-static int sf_index = 0;
+static int sf_size = 3200 ;
+static int sf_index = 3200;
 
 
 // 访问raw program
@@ -88,7 +88,7 @@ void Visit(const koopa_raw_function_t &func) {
   std::cout << func->name + 1 << ":" << std::endl;
 
   // 清空栈帧
-  sf_size = sf_index = 0;
+  sf_size = sf_index = 3200;
   stack_frame.clear();
   // 计算该函数的栈帧大小
   for(size_t i = 0; i < func->bbs.len; ++i) {
@@ -282,8 +282,11 @@ void Visit(const koopa_raw_binary_t &binary, const koopa_raw_value_t &dest) {
 // 访问return
 void Visit(const koopa_raw_return_t &ret) {
   write_reg(ret.value, "a0");
-  if(sf_size > 0) {
+  if(sf_size > 0 && sf_size <= 2048) {
     std::cout << "  addi sp, sp, " << sf_size << std::endl;
+  } else if(sf_size > 2048) {
+    std::cout << "  li t0, " << sf_size << std::endl;
+    std::cout << "  add sp, sp, t0" << std::endl;  
   }
   std::cout << "  ret\n";
 }
@@ -313,7 +316,7 @@ void write_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
       if(IN_IMM12(offset)) {
         std::cout << "  lw " << reg_name << ", " << offset << "(sp)\n";
       } else {
-        std::cout << "  li " << "t3, " << offset << std::endl;
+        std::cout << "  li t3, " << offset << std::endl;
         std::cout << "  add t3, sp, t3" << std::endl;
         std::cout << "  lw " << reg_name << ", 0(t3)" << std::endl; 
       }
