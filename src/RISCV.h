@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include "koopa.h"
 
+#define IN_IMM12(x) (((x) >= -2048) && ((x) <= 2047)) 
 
 // 栈帧 {inst, location}
 static std::unordered_map<koopa_raw_value_t, int> stack_frame;
@@ -40,6 +41,8 @@ void Visit(const koopa_raw_jump_t &jump);
 
 // 将栈帧中value的值写到寄存器reg_name中
 void write_reg(const koopa_raw_value_t &value, const std::string &reg_name);
+// 将寄存器reg_name的值储存到栈帧中的value
+void save_reg(const koopa_raw_value_t &value, const std::string &reg_name);
 
 // 访问 raw program
 void Visit(const koopa_raw_program_t &program) {
@@ -101,8 +104,11 @@ void Visit(const koopa_raw_function_t &func) {
   int mod = sf_size % 16;
   sf_size += ((mod == 0) ? 0 : (16 - mod));
 
-  if(sf_size > 0) {
+  if(sf_size > 0 && sf_size <= 2048) {
     std::cout << "  addi sp, sp, -" << sf_size << std::endl;
+  } else if (sf_size > 2048) {
+    std::cout << "  li t0, " << -sf_size << std::endl;
+    std::cout << "  add sp, sp, t0" << std::endl;
   }
 
   // 访问所有基本块
@@ -179,16 +185,20 @@ void Visit(const koopa_raw_integer_t &integer) {
 } 
 
 // 访问load
+// 处理imm12, 若越界则
+// li t3, imm12
+// add t3, sp, t3
+// sw dest, t3
 void Visit(const koopa_raw_load_t &load, const koopa_raw_value_t &dest) {
   write_reg(load.src, "t0");
   stack_frame[dest] = sf_index; sf_index += 4;
-  std::cout << "  sw t0, " << stack_frame[dest] << "(sp)\n";
+  save_reg(dest, "t0");
 }
 
 // 访问store
 void Visit(const koopa_raw_store_t &store) {
   write_reg(store.value, "t0");
-  std::cout << "  sw t0, " << stack_frame[store.dest]  << "(sp)\n";
+  save_reg(store.dest, "t0");
 }
 
 // 访问binary
@@ -266,7 +276,7 @@ void Visit(const koopa_raw_binary_t &binary, const koopa_raw_value_t &dest) {
     default: break;
   }
   stack_frame[dest] = sf_index; sf_index += 4;
-  std::cout << "  sw t0, " << stack_frame[dest] << "(sp)\n";
+  save_reg(dest, "t0");
 }
 
 // 访问return
@@ -281,10 +291,8 @@ void Visit(const koopa_raw_return_t &ret) {
 // branch
 void Visit(const koopa_raw_branch_t &branch) {
   write_reg(branch.cond, "t0");
-  std::cout << "  bnez t0, JUMP_" << branch.true_bb->name + 1 << std::endl;
+  std::cout << "  bnez t0, " << branch.true_bb->name + 1 << std::endl;
   std::cout << "  j " << branch.false_bb->name + 1 << std::endl;
-  std::cout << "JUMP_" << branch.true_bb->name + 1 << ":" << std::endl;
-  std::cout << "  j " << branch.true_bb->name + 1 << std::endl;
 }
 
 // jump
@@ -295,13 +303,31 @@ void Visit(const koopa_raw_jump_t &jump) {
 
 void write_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
   const auto& kind = value->kind;
+  int offset;
   switch(kind.tag) {
     case KOOPA_RVT_INTEGER:
       std::cout << "  li " << reg_name << ", " << kind.data.integer.value << std::endl;
       break;
     default:
-      std::cout << "  lw " << reg_name << ", " << stack_frame[value] << "(sp)\n";
+      offset = stack_frame[value];
+      if(IN_IMM12(offset)) {
+        std::cout << "  lw " << reg_name << ", " << offset << "(sp)\n";
+      } else {
+        std::cout << "  li " << "t3, " << offset << std::endl;
+        std::cout << "  add t3, sp, t3" << std::endl;
+        std::cout << "  lw " << reg_name << ", 0(t3)" << std::endl; 
+      }
       break;
   }
 } 
 
+void save_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
+  int offset = stack_frame[value];
+  if(IN_IMM12(offset)) {
+    std::cout << "  sw " << reg_name << ", " << offset << "(sp)\n";
+  } else {
+    std::cout << "  li t3, " << offset << std::endl;
+    std::cout << "  add t3, sp, t3" << std::endl;
+    std::cout << "  sw " << reg_name << ", 0(t3)" << std::endl; 
+  }
+}
