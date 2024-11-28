@@ -114,7 +114,7 @@ void Visit(const koopa_raw_function_t &func) {
 void Visit(const koopa_raw_basic_block_t &bb) {
   // 执行一些其他的必要操作
   // 打印基本块入口
-  if(strncmp(bb->name + 1, "entry", 5) != 0) {
+  if(strncmp(bb->name + 1, "LHR_entry", 9) != 0) {
     std::cout << bb->name + 1 << ":" << std::endl;
   }
 
@@ -281,8 +281,10 @@ void Visit(const koopa_raw_return_t &ret) {
 // branch
 void Visit(const koopa_raw_branch_t &branch) {
   write_reg(branch.cond, "t0");
-  std::cout << "  bnez t0, " << branch.true_bb->name + 1 << std::endl;
+  std::cout << "  bnez t0, JUMP_" << branch.true_bb->name + 1 << std::endl;
   std::cout << "  j " << branch.false_bb->name + 1 << std::endl;
+  std::cout << "JUMP_" << branch.true_bb->name + 1 << ":" << std::endl;
+  std::cout << "  j " << branch.true_bb->name + 1 << std::endl;
 }
 
 // jump

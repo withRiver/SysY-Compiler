@@ -139,7 +139,7 @@ class FuncDefAST : public BaseAST {
         std::cout << "fun @" << ident << "(): "; 
         func_type->DumpIR();
         std::cout << "{\n";
-        std::cout << "%entry_" << ident << ":\n";
+        std::cout << "%LHR_entry_" << ident << ":\n";
         block->DumpIR();
         std::cout << "}";
         std::cout << std::endl;
@@ -808,8 +808,8 @@ class LAndExpAST : public BaseAST {
                     std::cout << "  %" << global_reg << " = ne %" << global_reg - 1 << ", 0" << std::endl;
                 }
                 ++global_reg;
-                // br %3, %then, %end
-                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                // br %3, %then, %if_end
+                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %if_end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
                 // %then:
                 std::cout << "%then_" << cur_ifNo << ":\n";
@@ -821,10 +821,10 @@ class LAndExpAST : public BaseAST {
                 }
                 ++global_reg;
                 std::cout << "  store %" << global_reg - 1 << ", @andRes_" << cur_ifNo << std::endl;  
-                std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                std::cout << "  jump " << "%if_end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
-                // %end:
-                std::cout << "%end_" << cur_ifNo << ":\n";
+                // %if_end:
+                std::cout << "%if_end_" << cur_ifNo << ":\n";
                 std::cout << "  %" << global_reg << " = load @andRes_" << cur_ifNo << std::endl;
                 ++global_reg;
                 break;
@@ -887,8 +887,8 @@ class LOrExpAST : public BaseAST {
                     std::cout << "  %" << global_reg << " = eq %" << global_reg - 1 << ", 0" << std::endl;
                 }
                 ++global_reg;
-                // br %3, %then, %end
-                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                // br %3, %then, %if_end
+                std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %if_end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
                 // %then:
                 std::cout << "%then_" << cur_ifNo << ":\n";
@@ -900,10 +900,10 @@ class LOrExpAST : public BaseAST {
                 }
                 ++global_reg;
                 std::cout << "  store %" << global_reg - 1 << ", @orRes_" << cur_ifNo << std::endl;  
-                std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                std::cout << "  jump " << "%if_end_" << cur_ifNo << std::endl;
                 std::cout << std::endl;
-                // %end:
-                std::cout << "%end_" << cur_ifNo << ":\n";
+                // %if_end:
+                std::cout << "%if_end_" << cur_ifNo << ":\n";
                 std::cout << "  %" << global_reg << " = load @orRes_" << cur_ifNo << std::endl;
                 ++global_reg;
                 break;
@@ -994,18 +994,18 @@ class StmtAST : public BaseAST {
                 end_required = 1; // if语句一定需要end
                 num = exp->DumpIR();
                 if(!num.empty()) {
-                    std::cout << "  br " << num << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                    std::cout << "  br " << num << ", %then_" << cur_ifNo << ", %if_end_" << cur_ifNo << std::endl;
                 } else {
-                    std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %end_" << cur_ifNo << std::endl;
+                    std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %if_end_" << cur_ifNo << std::endl;
                 }
                 std::cout << std::endl;
                 std::cout << "%then_" << cur_ifNo << ":\n";
                 if(if_stmt->DumpIR() != "RETURN") {
-                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                    std::cout << "  jump " << "%if_end_" << cur_ifNo << std::endl;
                 }
                 std::cout << std::endl;
                 if(end_required) {
-                    std::cout << "%end_" << cur_ifNo << ":\n";
+                    std::cout << "%if_end_" << cur_ifNo << ":\n";
                 }
                 return end_required ? "" : "RETURN";
                 break; 
@@ -1022,18 +1022,18 @@ class StmtAST : public BaseAST {
                 std::cout << std::endl;
                 std::cout << "%then_" << cur_ifNo << ":\n";
                 if(if_stmt->DumpIR() != "RETURN") {
-                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;
+                    std::cout << "  jump " << "%if_end_" << cur_ifNo << std::endl;
                     end_required = 1;
                 }
                 std::cout << std::endl;
                 std::cout << "%else_" << cur_ifNo << ":\n";
                 if(else_stmt->DumpIR() != "RETURN") {
-                    std::cout << "  jump " << "%end_" << cur_ifNo << std::endl;    
+                    std::cout << "  jump " << "%if_end_" << cur_ifNo << std::endl;    
                     end_required = 1;               
                 }
                 std::cout << std::endl;
                 if(end_required) {
-                    std::cout << "%end_" << cur_ifNo << ":\n";
+                    std::cout << "%if_end_" << cur_ifNo << ":\n";
                 }
                 return end_required ? "" : "RETURN";
                 break;                 
