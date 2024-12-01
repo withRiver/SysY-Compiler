@@ -48,6 +48,8 @@ EqOp          [!=]=
 "if"            { return IF; }
 "else"          { return ELSE; }
 "while"         { return WHILE; }
+"break"         { return BREAK; }
+"continue"      { return CONTINUE; }
 
 {UnaryAddOp}       { yylval.str_val = new string(yytext); return UNARYADDOP; }
 {MulOp}         { yylval.str_val = new string(yytext); return MULOP; }

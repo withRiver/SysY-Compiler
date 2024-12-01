@@ -98,7 +98,11 @@ static int entryNo = 0;
 //if语句的数量，用于给if语句产生的基本块取名
 static int global_if = 0;
 //while语句的数量，用于给while语句产生的基本块取名
-//static int global_while = 0;
+static int global_whileCnt = 0;
+//当前while语句
+static int global_curWhile = -1;
+//while的嵌套关系，记录父节点
+static std::unordered_map<int, int> while_fa = {{-1,-1}};
 
 class BaseAST {
  public:
@@ -120,8 +124,10 @@ class CompUnitAST : public BaseAST {
         // 初始化symbol_table
         symbol_table = SymbolTableList();
         symbol_table.init();
-        // 将ifNo置0
+        // 置为0
         global_if = 0;
+        global_whileCnt = 0;
+        global_curWhile = -1;
         func_def->DumpIR();
         return "";
     }
@@ -948,7 +954,8 @@ public:
 //      | = "if" "(" Exp ")" Stmt ["else" Stmt]
 class StmtAST : public BaseAST {
  public:
-    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY, IF, IFELSE, WHILE};
+    enum TAG {ASSIGN, EMPTY, EXP, BLOCK, RETURN_EXP, RETURN_EMPTY, 
+                IF, IFELSE, WHILE, BREAK, CONTINUE};
     TAG tag;
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
@@ -962,6 +969,7 @@ class StmtAST : public BaseAST {
     std::string DumpIR() const override {
         std::string num;
         int cur_ifNo = global_if;
+        int old_while;
         int end_required = 0; // 判断if是否需要%end
         // std::string stmt_ret; // if_stmt和else_stmt的dumpIR()返回值
         switch(tag) {
@@ -1016,8 +1024,6 @@ class StmtAST : public BaseAST {
                 ++global_if;
                 num = exp->DumpIR();
                 if(!num.empty()) {
-                    cur_ifNo = global_if;
-                    ++global_if;
                     std::cout << "  br " << num << ", %then_" << cur_ifNo << ", %else_" << cur_ifNo << std::endl;
                 } else {
                     std::cout << "  br " << "%" << global_reg - 1 << ", %then_" << cur_ifNo << ", %else_" << cur_ifNo << std::endl;
@@ -1039,10 +1045,40 @@ class StmtAST : public BaseAST {
                     std::cout << "%if_end_" << cur_ifNo << ":\n";
                 }
                 return end_required ? "" : "RETURN";
-                break;                 
+                break;       
+            case WHILE:
+                old_while = global_curWhile;
+                global_curWhile = global_whileCnt;
+                ++global_whileCnt;
+                while_fa[global_curWhile] = old_while;
+                std::cout << "  jump %while_entry_" << global_curWhile << std::endl;
+                std::cout << std::endl;
+                std::cout << "%while_entry_" << global_curWhile << ":" << std::endl;
+                num = exp->DumpIR();
+                if(!num.empty()) {
+                    std::cout << "  br " << num << ", %while_body_" << global_curWhile << ", %while_end_" << global_curWhile << std::endl;
+                } else {
+                    std::cout << "  br " << "%" << global_reg - 1 << ", %while_body_" << global_curWhile << ", %while_end_" << global_curWhile << std::endl;
+                }
+                std::cout << std::endl;
+                std::cout << "%while_body_" << global_curWhile << ":" << std::endl;
+                if(while_stmt->DumpIR() != "RETURN"){
+                    std::cout << "  jump %while_entry_" << global_curWhile << std::endl;
+                }
+                std::cout << std::endl;
+                std::cout << "%while_end_" << global_curWhile << ":" << std::endl;
+                global_curWhile = while_fa[global_curWhile];
+                break;
+            case BREAK:
+                std::cout << "  jump %while_end_" << global_curWhile << std::endl;
+                return "RETURN";
+                break;
+            case CONTINUE:
+                std::cout << "  jump %while_entry_" << global_curWhile << std::endl;
+                return "RETURN";
+                break;          
             default: break;
         }
-
         return "";
     }
 
