@@ -148,7 +148,9 @@ class FuncDefAST : public BaseAST {
         func_type->DumpIR();
         std::cout << "{\n";
         std::cout << "%LHR_entry_" << ident << ":\n";
-        block->DumpIR();
+        if(block->DumpIR() == "WHILE_END") {
+            std::cout << "  ret 0" << std::endl;
+        };
         std::cout << "}";
         std::cout << std::endl;
         return "";
@@ -181,22 +183,16 @@ class BlockAST : public BaseAST {
     std::string DumpIR() const override {
         // 进入一个新的作用域
         symbol_table.enter_scope();
-        //int index = 0;
-        int is_ret = 0;
+        std::string str;
         for(auto& blockitem : *blockitem_vec) {
-            std::string str = blockitem->DumpIR();
+            str = blockitem->DumpIR();
             if(str == "RETURN") {
-                is_ret = 1;
                 break;
             }
-            //if(str == "RETURN" && (index != blockitem_vec->size() - 1 || symbol_table.current_scope_id() != 1)) {
-                //std::cout << "%entry" << ++entryNo << ":\n";    
-            //}
-            //++index;
         }
         // 退出该作用域
         symbol_table.exit_scope();
-        return is_ret ? "RETURN" : "";
+        return str;
     }
 
     int eval() const override {return 0;} 
@@ -1068,6 +1064,7 @@ class StmtAST : public BaseAST {
                 std::cout << std::endl;
                 std::cout << "%while_end_" << global_curWhile << ":" << std::endl;
                 global_curWhile = while_fa[global_curWhile];
+                return "WHILE_END";
                 break;
             case BREAK:
                 std::cout << "  jump %while_end_" << global_curWhile << std::endl;
