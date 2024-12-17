@@ -242,6 +242,7 @@ class FuncDefAST : public BaseAST {
 
     std::string DumpIR() const override {
         is_global = 0;
+        global_reg = 0;
 
         std::string type = dynamic_cast<BTypeAST*>(func_type.get())->type;
 
