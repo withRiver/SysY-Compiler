@@ -46,7 +46,7 @@ using namespace std;
 // 非终结符的类型定义
 %type <ast_val> CompUnitItem
 %type <ast_val> Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
-%type <ast_val> FuncDef FuncType FuncFParam Block BlockItem Stmt 
+%type <ast_val> FuncDef FuncFParam Block BlockItem Stmt 
 %type <ast_val> Exp PrimaryExp UnaryExp FuncExp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
 %type <ast_val> LVal
@@ -89,7 +89,12 @@ CompUnitItemList
 CompUnitItem 
   : FuncDef {
     auto ast = new CompUnitItemAST();
-    ast->func_def = unique_ptr<BaseAST>($1);
+    ast->funcdef_decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Decl {
+    auto ast = new CompUnitItemAST();
+    ast->funcdef_decl = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -105,7 +110,7 @@ CompUnitItem
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
 FuncDef
-  : FuncType IDENT '(' FuncFParams ')' Block {
+  : BType IDENT '(' FuncFParams ')' Block {
     auto func_def = new FuncDefAST();
     func_def->func_type = unique_ptr<BaseAST>($1);
     func_def->ident = *unique_ptr<string>($2);
@@ -115,19 +120,6 @@ FuncDef
   }
   ;
 
-// 同上, 不再解释
-FuncType
-  : INT {
-    auto func_type = new FuncTypeAST();
-    func_type->type = "int";
-    $$ = func_type;
-  }
-  | VOID {
-    auto func_type = new FuncTypeAST();
-    func_type->type = "void";
-    $$ = func_type;
-  }
-  ;
 
 FuncFParams
   : {
@@ -291,6 +283,12 @@ ConstDecl
 BType
   : INT {
     auto ast = new BTypeAST();
+    ast->type = "int";
+    $$ = ast;
+  }
+  | VOID {
+    auto ast = new BTypeAST();
+    ast->type = "void";
     $$ = ast;
   }
   ;

@@ -22,7 +22,7 @@ class VarDefAST;
 class InitValAST;
 
 class FuncDefAST;
-class FuncTypeAST;
+//class FuncTypeAST;
 class FuncFParamAST;
 class BlockAST;
 class BlockItemAST;
@@ -107,6 +107,9 @@ static int global_whileCnt = 0;
 static int global_curWhile = -1;
 //while的嵌套关系，记录父节点
 static std::unordered_map<int, int> while_fa = {{-1,-1}};
+//记录是否在全局作用域中，针对全局变量声明
+static int is_global = 1;
+
 
 class BaseAST {
  public:
@@ -155,6 +158,7 @@ class CompUnitAST : public BaseAST {
         std::cout << std::endl;
 
         for(auto& compunit_item : *compunit_items) {
+            is_global = 1;
             compunit_item->DumpIR();
             std::cout << std::endl;
         }
@@ -167,18 +171,36 @@ class CompUnitAST : public BaseAST {
 
 class CompUnitItemAST : public BaseAST {
  public:
-    std::unique_ptr<BaseAST> func_def;
+    std::unique_ptr<BaseAST> funcdef_decl;
 
     void Dump() const override {}
 
     std::string DumpIR() const override {
-        return func_def->DumpIR();
+        return funcdef_decl->DumpIR();
     }
 
     int eval() const override {return 0;}
 };
 
+/*
 class FuncTypeAST : public BaseAST {
+ public:
+    std::string type;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        if(type == "int") {
+            std::cout << ": i32";
+        } 
+        return "";
+    }
+
+    int eval() const override {return 0;}
+};
+*/
+
+class BTypeAST : public BaseAST {
  public:
     std::string type;
 
@@ -219,7 +241,9 @@ class FuncDefAST : public BaseAST {
     void Dump() const override {}
 
     std::string DumpIR() const override {
-        std::string type = dynamic_cast<FuncTypeAST*>(func_type.get())->type;
+        is_global = 0;
+
+        std::string type = dynamic_cast<BTypeAST*>(func_type.get())->type;
 
         symbol_table.insert(ident, type == "int" ? INT_FUNC : VOID_FUNC);
 
@@ -239,10 +263,10 @@ class FuncDefAST : public BaseAST {
         for(auto& func_fparam: *func_fparams) {
             std::string param_name = dynamic_cast<FuncFParamAST*>(func_fparam.get())->ident;
             symbol_table.insert(param_name, VARIABLE, 0);
-            std::cout << "  %" << param_name << "_" << symbol_table.current_scope_id();
+            std::cout << "  @" << param_name << "_" << symbol_table.current_scope_id();
             std::cout << " = alloc i32" << std::endl;
             std::cout << "  store @" << param_name;
-            std::cout << ", %" << param_name << "_" << symbol_table.current_scope_id();
+            std::cout << ", @" << param_name << "_" << symbol_table.current_scope_id();
             std::cout << std::endl;
         }
 
@@ -338,13 +362,6 @@ class ConstDeclAST : public BaseAST {
     int eval() const override {return 0;}
 };
 
-class BTypeAST : public BaseAST {
- public:
-    void Dump() const override {}
-    std::string DumpIR() const override {return "";}
-    int eval() const override {return 0;}
-};
-
 // ConstDef ::= IDENT "=" ConstInitVal;
 class ConstDefAST : public BaseAST {
  public:
@@ -395,12 +412,16 @@ class VarDefAST : public BaseAST {
     std::unique_ptr<BaseAST> initval;
     void Dump() const override {}
     std::string DumpIR() const override {
-        // @x = alloc i32
+        // (global )@x = alloc i32(, zeroinit)
+        if(is_global) {std::cout << "global";}
         int scope_id = symbol_table.current_scope_id();
         std::string name = ident + "_" + std::to_string(scope_id);
-        std::cout << "  @" << name << " = alloc i32\n";
+        std::cout << "  @" << name << " = alloc i32";
+        if(is_global && tag == IDENT) {std::cout << ", zeroinit";}
+        if(is_global && tag == IDENT_EQ_VAL) {std::cout << ", " << initval->eval();}
+        std::cout << std::endl;
         // store 10, @x
-        if(tag == IDENT_EQ_VAL) {
+        if(is_global == 0 && tag == IDENT_EQ_VAL) {
             std::string num = initval->DumpIR();
             if(!num.empty()) {
                 std::cout << "  store " << num << ", @" << name;
@@ -412,6 +433,7 @@ class VarDefAST : public BaseAST {
         symbol_table.insert(ident, VARIABLE, 0);
         return "";
     } 
+
     int eval() const override {return 0;}
 };
 
