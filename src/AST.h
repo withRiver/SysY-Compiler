@@ -5,11 +5,13 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <utility>
 #include <cassert>
 #include "symbol_table.h"
 
 class BaseAST;
 class CompUnitAST;
+class CompUnitItemAST;
 
 class DeclAST;
 class ConstDeclAST;
@@ -21,6 +23,7 @@ class InitValAST;
 
 class FuncDefAST;
 class FuncTypeAST;
+class FuncFParamAST;
 class BlockAST;
 class BlockItemAST;
 class StmtAST;
@@ -28,6 +31,7 @@ class StmtAST;
 class ExpAST;
 class PrimaryExpAST;
 class UnaryExpAST;
+class FuncExpAST;
 class MulExpAST;
 class AddExpAST;
 class RelExpAST;
@@ -114,7 +118,7 @@ class BaseAST {
 
 class CompUnitAST : public BaseAST {
  public:
-    std::unique_ptr<BaseAST> func_def;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> compunit_items;
 
     void Dump() const override {}
 
@@ -128,7 +132,77 @@ class CompUnitAST : public BaseAST {
         global_if = 0;
         global_whileCnt = 0;
         global_curWhile = -1;
-        func_def->DumpIR();
+
+        // 在符号表中加入库函数
+        symbol_table.insert("getint", INT_FUNC);
+        symbol_table.insert("getch", INT_FUNC);
+        symbol_table.insert("getarray", INT_FUNC);
+        symbol_table.insert("putint", VOID_FUNC);
+        symbol_table.insert("putch", VOID_FUNC);
+        symbol_table.insert("putarray", VOID_FUNC);
+        symbol_table.insert("starttime", VOID_FUNC);
+        symbol_table.insert("stoptime", VOID_FUNC);
+
+        // 在Koopa IR 中声明库函数
+        std::cout << "decl @getint(): i32" << std::endl;
+        std::cout << "decl @getch(): i32" << std::endl;        
+        std::cout << "decl @getarray(*i32): i32" << std::endl;
+        std::cout << "decl @putint(i32)" << std::endl; 
+        std::cout << "decl @putch(i32)" << std::endl;
+        std::cout << "decl @putarray(i32, *i32)" << std::endl;        
+        std::cout << "decl @starttime()" << std::endl;
+        std::cout << "decl @stoptime()" << std::endl; 
+        std::cout << std::endl;
+
+        for(auto& compunit_item : *compunit_items) {
+            compunit_item->DumpIR();
+            std::cout << std::endl;
+        }
+
+        return "";
+    }
+
+    int eval() const override {return 0;}
+};
+
+class CompUnitItemAST : public BaseAST {
+ public:
+    std::unique_ptr<BaseAST> func_def;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        return func_def->DumpIR();
+    }
+
+    int eval() const override {return 0;}
+};
+
+class FuncTypeAST : public BaseAST {
+ public:
+    std::string type;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        if(type == "int") {
+            std::cout << ": i32";
+        } 
+        return "";
+    }
+
+    int eval() const override {return 0;}
+};
+
+class FuncFParamAST : public BaseAST {
+ public:
+    std::unique_ptr<BaseAST> btype;
+    std::string ident;
+
+    void Dump() const override {}
+
+    std::string DumpIR() const override {
+        std::cout << "@" << ident << ": i32";
         return "";
     }
 
@@ -139,39 +213,56 @@ class FuncDefAST : public BaseAST {
  public:
     std::unique_ptr<BaseAST> func_type;
     std::string ident;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> func_fparams;
     std::unique_ptr<BaseAST> block;
 
     void Dump() const override {}
 
     std::string DumpIR() const override {
-        std::cout << "fun @" << ident << "(): "; 
+        std::string type = dynamic_cast<FuncTypeAST*>(func_type.get())->type;
+
+        symbol_table.insert(ident, type == "int" ? INT_FUNC : VOID_FUNC);
+
+        symbol_table.enter_scope();
+        std::cout << "fun @" << ident << "(";
+        int n = func_fparams->size();
+        int i  = 0;
+        for(auto& func_fparam : *func_fparams) {
+            func_fparam->DumpIR();
+            if(i != n - 1) {std::cout << ", ";}
+            ++i;
+        }
+        std::cout << ") "; 
         func_type->DumpIR();
-        std::cout << "{\n";
+        std::cout << " {\n";
         std::cout << "%LHR_entry_" << ident << ":\n";
-        if(block->DumpIR() == "WHILE_END") {
-            std::cout << "  ret 0" << std::endl;
+        for(auto& func_fparam: *func_fparams) {
+            std::string param_name = dynamic_cast<FuncFParamAST*>(func_fparam.get())->ident;
+            symbol_table.insert(param_name, VARIABLE, 0);
+            std::cout << "  %" << param_name << "_" << symbol_table.current_scope_id();
+            std::cout << " = alloc i32" << std::endl;
+            std::cout << "  store @" << param_name;
+            std::cout << ", %" << param_name << "_" << symbol_table.current_scope_id();
+            std::cout << std::endl;
+        }
+
+        if(block->DumpIR() != "RETURN") {
+            if(type == "int") {
+                std::cout << "  ret 0" << std::endl;
+            } else {
+                std::cout << "  ret" << std::endl;
+            }
         };
         std::cout << "}";
         std::cout << std::endl;
+
+        symbol_table.exit_scope();
         return "";
     }
 
     int eval() const override {return 0;}
 };
 
-class FuncTypeAST : public BaseAST {
- public:
-    std::string type = "int";
-
-    void Dump() const override {}
-
-    std::string DumpIR() const override {
-        std::cout << "i32 ";
-        return "";
-    }
-
-    int eval() const override {return 0;}
-};
 
 // Block ::= "{" {BlockItem} "}";
 class BlockAST : public BaseAST {
@@ -441,14 +532,15 @@ class PrimaryExpAST : public BaseAST {
     }
 };
 
-//UnaryExp ::= PrimaryExp | UnaryOp UnaryExp;
+//UnaryExp ::= PrimaryExp | UnaryOp UnaryExp | FuncExp;
 class UnaryExpAST : public BaseAST {
  public:
-    enum TAG { PRIMARY_EXP, OP_UNARY_EXP};
+    enum TAG { PRIMARY_EXP, OP_UNARY_EXP, FUNC_EXP};
     TAG tag;
     std::unique_ptr<BaseAST> primary_exp;
     std::string unary_op;
     std::unique_ptr<BaseAST> unary_exp;
+    std::unique_ptr<BaseAST> func_exp;
 
     void Dump() const override {
         std::cout << "UnaryExpAST { ";
@@ -503,6 +595,9 @@ class UnaryExpAST : public BaseAST {
                     ++global_reg;
                 }
                 break;
+            case FUNC_EXP:
+                func_exp->DumpIR();
+                break;
             default:
                 break;
         }
@@ -527,6 +622,52 @@ class UnaryExpAST : public BaseAST {
         }
         return 0;
     }
+};
+
+// FuncExp ::= IDENT '(' FuncRParams ')'
+class FuncExpAST : public BaseAST {
+ public:
+    std::string ident;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> func_rparams;
+
+    void Dump() const override {}
+    std::string DumpIR() const override {
+        auto func = symbol_table.query(ident);
+        assert(func != nullptr && (func->type == INT_FUNC || func->type == VOID_FUNC));
+
+        // 调用函数前计算exp
+        auto params = std::vector<std::pair<char, int>>();
+        for(auto& func_rparam : *func_rparams) {
+            std::string num = func_rparam->DumpIR();
+            if(!num.empty()) {
+                params.push_back(std::make_pair(0, std::stoi(num)));
+            } else {
+                params.push_back(std::make_pair(1, global_reg - 1));
+            }
+        }
+
+        if(func->type == VOID_FUNC) {
+            std::cout << "  call @" << ident << "(";
+        } else if (func->type == INT_FUNC) {
+            std::cout << "  %" << global_reg << " = call @" << ident << "(";
+            ++global_reg;
+        }
+
+        int n = params.size();
+        int i = 0;
+        for(auto& param: params) {
+            if(param.first == 1) {
+                std::cout << "%";
+            }
+            std::cout << param.second;
+            if(i != n - 1) {std::cout << ", ";}
+            ++i;
+        }
+
+        std::cout << ")" << std::endl;
+        return "";
+    }
+    int eval() const override {return 0;}
 };
 
 // MulExp ::= UnaryExp | MulExp MulOp UnaryExp;

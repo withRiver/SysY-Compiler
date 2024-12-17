@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-typedef enum { CONSTANT, VARIABLE } type_t;
+typedef enum { CONSTANT, VARIABLE, VOID_FUNC, INT_FUNC} type_t;
 
 struct Symbol {
     type_t type;
@@ -15,7 +15,7 @@ struct Symbol {
 };
 
 // 出现的作用域的编号
-static int global_scope_id = 1;
+static int global_scope_id = 0;
 
 
 class SymbolTable {
@@ -23,7 +23,7 @@ class SymbolTable {
     std::shared_ptr<SymbolTable> prev;
     int scope_id;
 public:
-    SymbolTable(std::shared_ptr<SymbolTable> _prev = nullptr, int id = 1): 
+    SymbolTable(std::shared_ptr<SymbolTable> _prev = nullptr, int id = 0): 
                                                         prev(_prev), scope_id(id) {} 
 
     int insert(const std::string& ident, type_t type, int val) {
@@ -98,7 +98,7 @@ class SymbolTableList {
 public:
     SymbolTableList() {current_table = std::make_shared<SymbolTable>();}
 
-    int insert(const std::string& ident, type_t type, int val) {
+    int insert(const std::string& ident, type_t type, int val=0) {
         return current_table->insert(ident, type, val);
     }
 
