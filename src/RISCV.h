@@ -423,7 +423,8 @@ void write_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
       if(index < 8) {
         std::cout << "  mv " << reg_name << ", a" << index << std::endl;
       } else {
-        offset = (index - 8) * 4;
+        // 注意这里offset一定要加上 sf_size, 这样才能获取到存放在caller栈帧中的参数
+        offset = sf_size + (index - 8) * 4;
         if(IN_IMM12(offset)) {
           std::cout << "  lw " << reg_name << ", " << offset << "(sp)" << std::endl;
         } else {
