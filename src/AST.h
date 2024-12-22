@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <utility>
+#include <algorithm>
 #include <cassert>
 #include "symbol_table.h"
 
@@ -110,6 +111,8 @@ static std::unordered_map<int, int> while_fa = {{-1,-1}};
 //记录是否在全局作用域中，针对全局变量声明
 static int is_global = 1;
 
+static void handle_aggregate(std::vector<std::pair<char, int>>&, std::vector<int>&, std::vector<int>&, 
+                                int, int, const std::string&, char);
 
 class BaseAST {
  public:
@@ -363,31 +366,101 @@ class ConstDeclAST : public BaseAST {
     int eval() const override {return 0;}
 };
 
-// ConstDef ::= IDENT "=" ConstInitVal;
-class ConstDefAST : public BaseAST {
- public:
-    std::string ident;
-    std::unique_ptr<BaseAST> const_initval;
-    void Dump() const override {}
-    std::string DumpIR() const override {
-        symbol_table.insert(ident, CONSTANT, const_initval->eval());
-        return "";
-    }
-    int eval() const override {return 0;}
-};
-
-// ConstInitVal ::= ConstExp;
+// ConstInitVal ::= ConstExp | '{ ConstInitValList '}' ;
 class ConstInitValAST : public BaseAST {
  public:
+    enum TAG {CONSTEXP, CONSTINITVAL};
+    TAG tag;
     std::unique_ptr<BaseAST> const_exp;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> constinitval_list;
     void Dump() const override {}
     std::string DumpIR() const override {
         return const_exp->DumpIR();
     }
     int eval() const override {
+        assert(tag == CONSTEXP);
         return const_exp->eval();
     }
+    std::vector<std::pair<char,int>> get_aggregate(std::vector<int>::iterator s, std::vector<int>::iterator e) const {
+        std::vector<std::pair<char, int>> aggregate;
+        for(auto& constinitval: *constinitval_list) {
+            auto cit = dynamic_cast<ConstInitValAST*>(constinitval.get());
+            if(cit->tag == CONSTEXP) {
+                aggregate.push_back(std::make_pair(0, cit->eval()));
+            } else {
+                auto it = s;
+                ++it;
+                for(; it != e; ++it) {
+                    if(aggregate.size() % (*it) == 0) {
+                        auto sub = cit-> get_aggregate(it, e);
+                        aggregate.insert(aggregate.end(), sub.begin(), sub.end());
+                        break;
+                    }
+                }
+            }
+        }
+        // 补0
+        aggregate.insert(aggregate.end(), (*s) - aggregate.size(), std::make_pair(0,0));
+        return aggregate;
+    }
 };
+
+// ConstDef ::= IDENT DimList "=" ConstInitVal;
+class ConstDefAST : public BaseAST {
+ public:
+    std::string ident;
+    std::unique_ptr<BaseAST> const_initval;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dim_list;
+    void Dump() const override {}
+    std::string DumpIR() const override {
+        if(dim_list->empty()) {
+            symbol_table.insert(ident, CONSTANT, const_initval->eval());
+        } else {
+            symbol_table.insert(ident, CONST_ARRAY);
+            if(is_global) {
+                std::cout << "global ";
+            } else {
+                std::cout << "  ";
+            }
+            int len = dim_list->size();
+            int scope_id = symbol_table.current_scope_id();
+            std::string name = ident + "_" + std::to_string(scope_id);
+            std::cout << "@" << name << " = " << "alloc ";
+            for(int _ = 0; _ < len; ++_) {
+                std::cout << "[";
+            }
+            std::cout<< "i32";
+            auto words = std::vector<int>();
+            auto lens = std::vector<int>();
+            for(int i = len - 1; i >= 0; --i) {
+                int val = dim_list->at(i)->eval();
+                lens.push_back(val);
+                if(words.empty()) {
+                    words.push_back(val);
+                } else {
+                    words.push_back(val * words.back());
+                }
+                std::cout << ", " << val << "]";
+            }
+            std::reverse(words.begin(), words.end());
+            std::reverse(lens.begin(), lens.end());
+            std::vector<std::pair<char, int>> aggregate = dynamic_cast<ConstInitValAST*>(const_initval.get())
+                                                        ->get_aggregate(words.begin(), words.end());
+            if(is_global) {
+                std::cout << ", ";
+                handle_aggregate(aggregate, lens, words, 0, 0, ident, 'G');
+                std::cout << std::endl;
+            } else {
+                std::cout << std::endl;
+                handle_aggregate(aggregate, lens, words, 0, 0, ident, 'C');
+            }
+        }
+        return "";
+    }
+    int eval() const override {return 0;}
+};
+
+
 
 // VarDecl ::= BType VarDef {"," VarDef} ";";
 class VarDeclAST : public BaseAST {
@@ -404,44 +477,13 @@ class VarDeclAST : public BaseAST {
     int eval() const override {return 0;}
 };
 
-// VarDef ::= IDENT | IDENT "=" InitVal;
-class VarDefAST : public BaseAST {
- public:
-    enum TAG {IDENT, IDENT_EQ_VAL};
-    TAG tag;
-    std::string ident;
-    std::unique_ptr<BaseAST> initval;
-    void Dump() const override {}
-    std::string DumpIR() const override {
-        // (global )@x = alloc i32(, zeroinit)
-        if(is_global) {std::cout << "global";}
-        int scope_id = symbol_table.current_scope_id();
-        std::string name = ident + "_" + std::to_string(scope_id);
-        std::cout << "  @" << name << " = alloc i32";
-        if(is_global && tag == IDENT) {std::cout << ", zeroinit";}
-        if(is_global && tag == IDENT_EQ_VAL) {std::cout << ", " << initval->eval();}
-        std::cout << std::endl;
-        // store 10, @x
-        if(is_global == 0 && tag == IDENT_EQ_VAL) {
-            std::string num = initval->DumpIR();
-            if(!num.empty()) {
-                std::cout << "  store " << num << ", @" << name;
-            } else {
-                std::cout << "  store %" << global_reg - 1 << ", @" << name;
-            }
-            std::cout << std::endl;
-        }
-        symbol_table.insert(ident, VARIABLE, 0);
-        return "";
-    } 
-
-    int eval() const override {return 0;}
-};
-
-// InitVal ::= Exp;
+// InitVal ::= Exp | '{' InitValList '}' ;
 class InitValAST : public BaseAST {
  public:
+    enum TAG {EXP, INITVAL};
+    TAG tag;
     std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> initval_list;
     void Dump() const override {}
     std::string DumpIR() const override {
         return exp->DumpIR();
@@ -449,12 +491,153 @@ class InitValAST : public BaseAST {
     int eval() const override {
         return exp->eval();
     }
+    std::vector<std::pair<char, int>> get_aggregate(std::vector<int>::iterator s, std::vector<int>::iterator e) const {
+        if(is_global) {
+            std::vector<std::pair<char, int>> aggregate;
+            for(auto& initval: *initval_list) {
+                auto cit = dynamic_cast<InitValAST*>(initval.get());
+                if(cit->tag == EXP) {
+                    aggregate.push_back(std::make_pair(0, cit->eval()));
+                } else {
+                    auto it = s;
+                    ++it;
+                    for(; it != e; ++it) {
+                        if(aggregate.size() % (*it) == 0) {
+                            auto sub = cit-> get_aggregate(it, e);
+                            aggregate.insert(aggregate.end(), sub.begin(), sub.end());
+                            break;
+                        }
+                    }
+                }
+            }
+            aggregate.insert(aggregate.end(), (*s) - aggregate.size(), std::make_pair(0, 0));
+            return aggregate;            
+        } else {
+            std::vector<std::pair<char, int>> aggregate;
+            for(auto& initval: *initval_list) {
+                auto iv = dynamic_cast<InitValAST*>(initval.get());
+                if(iv->tag == EXP) {
+                    std::string num = iv->DumpIR();
+                    //std::cout << std::endl << num << std::endl;
+                    if(!num.empty()) {
+                        aggregate.push_back(std::make_pair(0, stoi(num)));
+                    } else {
+                        aggregate.push_back(std::make_pair(1, global_reg - 1));
+                    }
+                } else {
+                    auto it = s;
+                    ++it;
+                    for(; it != e; ++it) {
+                        if(aggregate.size() % (*it) == 0) {
+                            auto sub = iv-> get_aggregate(it, e);
+                            aggregate.insert(aggregate.end(), sub.begin(), sub.end());
+                            break;
+                        }
+                    }                    
+                }
+            }
+            aggregate.insert(aggregate.end(), (*s) - aggregate.size(), std::make_pair(0, 0));
+            //for(auto& v: aggregate) {std::cout << " " << v.second << " ";}
+            return aggregate;
+        }
+    }
 };
 
-// LVal ::= IDENT
+// VarDef ::= IDENT DimList | IDENT DimList "=" InitVal;
+class VarDefAST : public BaseAST {
+ public:
+    enum TAG {IDENT, IDENT_EQ_VAL};
+    TAG tag;
+    std::string ident;
+    std::unique_ptr<BaseAST> initval;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dim_list;
+    void Dump() const override {}
+    std::string DumpIR() const override {
+        // (global )@x = alloc i32(, zeroinit)
+        if(dim_list->empty()) {
+            if(is_global) {std::cout << "global";}
+            int scope_id = symbol_table.current_scope_id();
+            std::string name = ident + "_" + std::to_string(scope_id);
+            std::cout << "  @" << name << " = alloc i32";
+            if(is_global && tag == IDENT) {std::cout << ", zeroinit";}
+            if(is_global && tag == IDENT_EQ_VAL) {std::cout << ", " << initval->eval();}
+            std::cout << std::endl;
+            // store 10, @x
+            if(is_global == 0 && tag == IDENT_EQ_VAL) {
+                std::string num = initval->DumpIR();
+                if(!num.empty()) {
+                    std::cout << "  store " << num << ", @" << name;
+                } else {
+                    std::cout << "  store %" << global_reg - 1 << ", @" << name;
+                }
+                std::cout << std::endl;
+            }
+            symbol_table.insert(ident, VARIABLE);
+        } else {
+            symbol_table.insert(ident, VAR_ARRAY);
+            if(is_global) {
+                std::cout << "global";
+            } else {
+                std::cout << "  ";
+            }
+            int len = dim_list->size();
+            int scope_id = symbol_table.current_scope_id();
+            std::string name = ident + "_" + std::to_string(scope_id);
+            std::cout << "@" << name << " = " << "alloc ";
+            for(int _ = 0; _ < len; ++_) {
+                std::cout << "[";
+            }
+            std::cout<< "i32";
+            auto words = std::vector<int>();
+            auto lens = std::vector<int>();
+            for(int i = len - 1; i >= 0; --i) {
+                int val = dim_list->at(i)->eval();
+                lens.push_back(val);
+                if(words.empty()) {
+                    words.push_back(val);
+                } else {
+                    words.push_back(val * words.back());
+                }
+                std::cout << ", " << val << "]";
+            }
+            std::reverse(words.begin(), words.end());
+            std::reverse(lens.begin(), lens.end());
+            if(is_global) {
+                if(tag == IDENT) {
+                    std::cout << ", zeroinit" << std::endl;
+                } else {
+                    std::vector<std::pair<char, int>> aggregate = dynamic_cast<InitValAST*>(initval.get())
+                                                                ->get_aggregate(words.begin(), words.end());
+                    std::cout << ", ";
+                    handle_aggregate(aggregate, lens, words, 0, 0, ident, 'G');
+                    std::cout << std::endl;
+                }
+            } else {
+                if(tag == IDENT) {
+                    std::cout << std::endl;
+                } else {
+                    std::vector<std::pair<char, int>> aggregate = dynamic_cast<InitValAST*>(initval.get())
+                                                                ->get_aggregate(words.begin(), words.end());
+                    std::cout << std::endl;
+                    //for(auto& v: aggregate) {std::cout << " " << v.second << " ";}
+                    handle_aggregate(aggregate, lens, words, 0, 0, ident, 'V');                    
+                }
+            }
+
+        }
+        return "";
+    } 
+
+    int eval() const override {return 0;}
+};
+
+
+
+// LVal ::= IDENT IndexList
 class LValAST : public BaseAST {
 public:
     std::string ident;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> index_list;
     void Dump() const override {}
     std::string DumpIR() const override {
         assert(symbol_table.exist(ident));
@@ -465,12 +648,33 @@ public:
         }
         else if(symb->type == VARIABLE) {
             // load @x
-            std::cout << "  %" << global_reg << " = load @" << ident <<"_" << scope;
+            std::cout << "  %" << global_reg << " = load @" << ident << "_" << scope;
             std::cout << std::endl;
             ++global_reg; 
+        } else if(symb->type == CONST_ARRAY || symb->type == VAR_ARRAY) {
+            for(int i = 0; i < index_list->size(); ++i) {
+                int last_ptr = global_reg - 1;
+                auto& index = index_list->at(i);
+                std::string num = index->DumpIR();
+                std::cout << "  %" << global_reg << " = getelemptr ";
+                if(i == 0) {
+                    std::cout << "@" << ident << "_" << scope << ", ";
+                } else {
+                    std::cout << "%" << last_ptr << ", ";
+                }
+                if(!num.empty()) {
+                    std::cout << num << std::endl;
+                } else {
+                    std::cout << "%" << global_reg - 1 << std::endl;
+                }
+                ++global_reg;
+            }
+            std::cout << "  %" << global_reg << " = load %" << global_reg - 1 << std::endl;
+            ++global_reg;
         }
         return "";
     }
+
     int eval() const override {
         auto symb = symbol_table.query(ident);
         return symb->val;
@@ -1012,7 +1216,7 @@ class LAndExpAST : public BaseAST {
                 left = land_exp->eval();
                 if(left == 0) {return 0;}
                 right = eq_exp->eval();
-                return right;
+                return right != 0;
                 break;
             default: break;
         }
@@ -1091,7 +1295,7 @@ class LOrExpAST : public BaseAST {
                 left = lor_exp->eval();
                 if(left == 1) {return 1;}
                 right = land_exp->eval();
-                return right;
+                return right != 0;
                 break;
             default: break;
         }
@@ -1132,6 +1336,10 @@ class StmtAST : public BaseAST {
         int old_while;
         int end_required = 0; // 判断if是否需要%end
         // std::string stmt_ret; // if_stmt和else_stmt的dumpIR()返回值
+        LValAST* lval_ptr;
+        int last_ptr;
+        int exp_reg;
+        std::string num2; 
         switch(tag) {
             case RETURN_EXP:
                 num = exp->DumpIR();
@@ -1143,15 +1351,41 @@ class StmtAST : public BaseAST {
                 return "RETURN";
                 break;
             case ASSIGN:
+                lval_ptr = dynamic_cast<LValAST*>(lval.get());
                 num = exp->DumpIR();
-                if(!num.empty()) {
-                    std::cout << "  store " << num << ", @";
+                exp_reg = global_reg - 1;
+                if(lval_ptr->index_list->empty()) {
+                    if(!num.empty()) {
+                        std::cout << "  store " << num << ", @";
+                    } else {
+                        std::cout << "  store %" << global_reg - 1 <<", @";
+                    }
+                    std::cout << lval_ptr->ident;
+                    std::cout << "_" << symbol_table.query_scope(lval_ptr->ident);
+                    std::cout << std::endl;
                 } else {
-                    std::cout << "  store %" << global_reg - 1 <<", @";
+                    for(int i = 0; i < lval_ptr->index_list->size(); ++i) {
+                        last_ptr = global_reg - 1;
+                        num2 = lval_ptr->index_list->at(i)->DumpIR();
+                        std::cout << "  %" << global_reg << " = getelemptr ";
+                        if(i == 0) {
+                            std::cout << "@" << lval_ptr->ident << "_" <<  symbol_table.query_scope(lval_ptr->ident);
+                        } else {
+                            std::cout << "%" << last_ptr;
+                        }
+                        if(!num2.empty()) {
+                            std::cout << ", " << num2 << std::endl;
+                        } else {
+                            std::cout << ", %" << global_reg - 1 << std::endl;
+                        }
+                        ++global_reg;
+                    }
+                    if(!num.empty()) {
+                        std::cout << "  store " << num << ", %" << global_reg - 1 << std::endl;
+                    } else {
+                        std::cout << "  store %" << exp_reg << ", %" << global_reg - 1 << std::endl;
+                    }
                 }
-                std::cout << dynamic_cast<LValAST*>(lval.get())->ident;
-                std::cout << "_" << symbol_table.query_scope(dynamic_cast<LValAST*>(lval.get())->ident);
-                std::cout << std::endl;
                 break;
             case EMPTY: break;
             case RETURN_EMPTY:
@@ -1245,3 +1479,47 @@ class StmtAST : public BaseAST {
 
     int eval() const override {return 0;}
 };
+
+static inline void handle_aggregate(std::vector<std::pair<char,int>>& aggregate, std::vector<int>& lens, std::vector<int>& words, int pos, int cur, const std::string& ident, char mode) {
+    if(mode == 'G') {
+        if(cur == lens.size()) {
+            std::cout << aggregate[pos].second;
+        } else {
+            std::cout << "{";
+            int sz = words[cur] / lens[cur];
+            for(int i = 0; i < lens[cur]; ++i) {
+                handle_aggregate(aggregate, lens, words, pos + i * sz, cur + 1, ident, mode);
+                if(i != lens[cur] - 1) {
+                    std::cout << ", ";
+                }
+            }
+            std::cout << "}";
+        }
+    } else {
+        if(cur == lens.size()) {
+            if(mode == 'C') {
+                std::cout << "  store " << aggregate[pos].second << ", %" << global_reg - 1 <<std::endl;
+            } else {
+                if(aggregate[pos].first == 0) {
+                    std::cout << "  store " << aggregate[pos].second << ", %" << global_reg - 1 << std::endl;   
+                } else {
+                    std::cout << "  store %" << aggregate[pos].second << ", %" << global_reg - 1 << std::endl; 
+                }
+            }
+        } else {
+            int sz = words[cur] / lens[cur];
+            int ptr = global_reg - 1;
+            for(int i = 0; i < lens[cur]; ++i) {
+                std::cout << "  %" << global_reg << " = getelemptr ";
+                if(cur == 0) {
+                    std::cout << "@" << ident << "_" << symbol_table.query_scope(ident);
+                } else {
+                    std::cout << "%" << ptr;
+                }
+                std::cout << ", " << i << std::endl;
+                ++global_reg;
+                handle_aggregate(aggregate, lens, words, pos + i * sz, cur + 1, ident, mode);
+            }
+        }
+    }
+}

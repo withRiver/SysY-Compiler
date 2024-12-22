@@ -5,7 +5,13 @@
 #include <string>
 #include <unordered_map>
 
-typedef enum { CONSTANT, VARIABLE, VOID_FUNC, INT_FUNC} type_t;
+typedef enum { CONSTANT, 
+               VARIABLE, 
+               VOID_FUNC, 
+               INT_FUNC,
+               CONST_ARRAY,
+               VAR_ARRAY, 
+} type_t;
 
 struct Symbol {
     type_t type;

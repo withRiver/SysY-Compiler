@@ -51,6 +51,7 @@ using namespace std;
 %type <int_val> Number
 %type <ast_val> LVal
 %type <vec_val> CompUnitItemList BlockItemList ConstDefList VarDefList
+%type <vec_val> DimList IndexList ConstInitValList InitValList ConstArrayInitVal ArrayInitVal
 %type <vec_val> FuncFParams FuncRParams
 %type <vec_val> FuncFParamList FuncRParamList
 
@@ -307,19 +308,60 @@ ConstDefList
   ;
 
 ConstDef
-  : IDENT '=' ConstInitVal {
+  : IDENT DimList '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->const_initval = unique_ptr<BaseAST>($3);
+    ast->dim_list = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    ast->const_initval = unique_ptr<BaseAST>($4);
     $$ = ast;
   }
   ;
 
+DimList
+  : {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    $$ = vec;
+  }
+  | DimList '[' ConstExp ']' {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+
 ConstInitVal
   : ConstExp {
     auto ast = new ConstInitValAST();
+    ast->tag = ConstInitValAST::CONSTEXP;
     ast->const_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
+  }
+  | ConstArrayInitVal {
+    auto ast = new ConstInitValAST();
+    ast->tag = ConstInitValAST::CONSTINITVAL;
+    ast->constinitval_list = unique_ptr<vector<unique_ptr<BaseAST>>>($1);
+    $$ = ast;
+  }
+  ;
+
+ConstArrayInitVal 
+  : '{' '}' {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    $$ = vec;
+  }
+  | '{' ConstInitValList '}' {
+    $$ = $2;
+  }
+
+ConstInitValList 
+  : ConstInitVal {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstInitValList ',' ConstInitVal {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;   
   }
   ;
 
@@ -346,17 +388,19 @@ VarDefList
   ;
 
 VarDef 
-  : IDENT {
+  : IDENT DimList {
     auto ast = new VarDefAST();
     ast->tag = VarDefAST::IDENT;
     ast->ident = *unique_ptr<string>($1);
+    ast->dim_list = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
-  | IDENT '=' InitVal {
+  | IDENT DimList '=' InitVal {
     auto ast = new VarDefAST();
     ast->tag = VarDefAST::IDENT_EQ_VAL;
     ast->ident = *unique_ptr<string>($1);
-    ast->initval = unique_ptr<BaseAST>($3);
+    ast->dim_list = unique_ptr<vector<unique_ptr<BaseAST>>>($2);    
+    ast->initval = unique_ptr<BaseAST>($4);
     $$ = ast;
   }
   ;
@@ -364,8 +408,38 @@ VarDef
 InitVal
   : Exp {
     auto ast = new InitValAST();
+    ast->tag = InitValAST::EXP;
     ast->exp = unique_ptr<BaseAST>($1);
     $$ = ast;
+  }
+  | ArrayInitVal {
+    auto ast = new InitValAST();
+    ast->tag = InitValAST::INITVAL;
+    ast->initval_list = unique_ptr<vector<unique_ptr<BaseAST>>>($1);
+    $$ = ast;
+  }
+  ;
+
+ArrayInitVal
+  : '{' '}' {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    $$ = vec;
+  }
+  | '{' InitValList '}' {
+    $$ = $2;
+  }
+  ;
+
+InitValList 
+  : InitVal {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | InitValList ',' InitVal {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;   
   }
   ;
 
@@ -376,11 +450,24 @@ Number
   ;
 
 LVal
-  : IDENT {
+  : IDENT IndexList {
     auto lval = new LValAST();
     lval->ident = *unique_ptr<string>($1);
+    lval->index_list = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = lval;
   }
+
+IndexList
+  : {
+    auto vec = new vector<unique_ptr<BaseAST>>();
+    $$ = vec;
+  }
+  | IndexList '[' Exp ']' {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
 
 Exp
   : LOrExp {
