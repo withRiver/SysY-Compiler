@@ -148,8 +148,17 @@ FuncFParamList
 FuncFParam
   : BType IDENT {
     auto ast = new FuncFParamAST();
+    ast->tag = FuncFParamAST::INTEGER;
     ast->btype = unique_ptr<BaseAST>($1);
     ast->ident = *unique_ptr<string>($2);
+    $$ = ast;
+  }
+  | BType IDENT '[' ']' DimList {
+    auto ast = new FuncFParamAST();
+    ast->tag = FuncFParamAST::ARRAY;
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->dim_list = unique_ptr<vector<unique_ptr<BaseAST>>>($5);
     $$ = ast;
   }
   ;

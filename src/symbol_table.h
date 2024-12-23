@@ -11,6 +11,7 @@ typedef enum { CONSTANT,
                INT_FUNC,
                CONST_ARRAY,
                VAR_ARRAY, 
+               POINTER, 
 } type_t;
 
 struct Symbol {

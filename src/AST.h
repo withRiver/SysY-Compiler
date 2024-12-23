@@ -221,13 +221,26 @@ class BTypeAST : public BaseAST {
 
 class FuncFParamAST : public BaseAST {
  public:
+    enum TAG {INTEGER, ARRAY};
+    TAG tag;
     std::unique_ptr<BaseAST> btype;
     std::string ident;
-
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dim_list;
     void Dump() const override {}
 
     std::string DumpIR() const override {
-        std::cout << "@" << ident << ": i32";
+        if(tag == INTEGER) {
+            std::cout << "@" << ident << ": i32";
+        } else if(tag == ARRAY) {
+            std::cout << "@" << ident << ": *";
+            for(int _ = 0; _ < dim_list->size(); ++_) {
+                std::cout << "[";
+            }
+            std::cout << "i32";
+            for(int i = dim_list->size() - 1; i >= 0; --i) {
+                std::cout << ", " << dim_list->at(i)->eval() << "]";
+            }
+        }
         return "";
     }
 
@@ -265,13 +278,30 @@ class FuncDefAST : public BaseAST {
         std::cout << " {\n";
         std::cout << "%LHR_entry_" << ident << ":\n";
         for(auto& func_fparam: *func_fparams) {
-            std::string param_name = dynamic_cast<FuncFParamAST*>(func_fparam.get())->ident;
-            symbol_table.insert(param_name, VARIABLE, 0);
-            std::cout << "  @" << param_name << "_" << symbol_table.current_scope_id();
-            std::cout << " = alloc i32" << std::endl;
-            std::cout << "  store @" << param_name;
-            std::cout << ", @" << param_name << "_" << symbol_table.current_scope_id();
-            std::cout << std::endl;
+            auto param = dynamic_cast<FuncFParamAST*>(func_fparam.get());
+            std::string param_name = param->ident;
+            if(param->tag == FuncFParamAST::INTEGER) {
+                symbol_table.insert(param_name, VARIABLE);
+                std::cout << "  @" << param_name << "_" << symbol_table.current_scope_id();
+                std::cout << " = alloc i32" << std::endl;
+                std::cout << "  store @" << param_name;
+                std::cout << ", @" << param_name << "_" << symbol_table.current_scope_id();
+                std::cout << std::endl;
+            } else if(param->tag == FuncFParamAST::ARRAY) {
+                symbol_table.insert(param_name, POINTER, param->dim_list->size() + 1);
+                std::cout << "  @" << param_name << "_" << symbol_table.current_scope_id();
+                std::cout << " = alloc *";
+                for(int _ = 0; _ < param->dim_list->size(); ++_) {
+                    std::cout << "[";
+                }
+                std::cout << "i32";
+                for(int i = param->dim_list->size() - 1; i >= 0; --i) {
+                    std::cout << ", " << param->dim_list->at(i)->eval() << "]";
+                }           
+                std::cout << std::endl;            
+                std::cout << "  store @" << param_name << ", @" << param_name << "_" << symbol_table.current_scope_id();
+                std::cout << std::endl;         
+            }
         }
 
         if(block->DumpIR() != "RETURN") {
@@ -416,7 +446,7 @@ class ConstDefAST : public BaseAST {
         if(dim_list->empty()) {
             symbol_table.insert(ident, CONSTANT, const_initval->eval());
         } else {
-            symbol_table.insert(ident, CONST_ARRAY);
+            symbol_table.insert(ident, CONST_ARRAY, dim_list->size());
             if(is_global) {
                 std::cout << "global ";
             } else {
@@ -574,7 +604,7 @@ class VarDefAST : public BaseAST {
             }
             symbol_table.insert(ident, VARIABLE);
         } else {
-            symbol_table.insert(ident, VAR_ARRAY);
+            symbol_table.insert(ident, VAR_ARRAY, dim_list->size());
             if(is_global) {
                 std::cout << "global";
             } else {
@@ -652,25 +682,106 @@ public:
             std::cout << std::endl;
             ++global_reg; 
         } else if(symb->type == CONST_ARRAY || symb->type == VAR_ARRAY) {
-            for(int i = 0; i < index_list->size(); ++i) {
-                int last_ptr = global_reg - 1;
-                auto& index = index_list->at(i);
-                std::string num = index->DumpIR();
+            if(symb->val == index_list->size()) {
+                for(int i = 0; i < index_list->size(); ++i) {
+                    int last_ptr = global_reg - 1;
+                    auto& index = index_list->at(i);
+                    std::string num = index->DumpIR();
+                    std::cout << "  %" << global_reg << " = getelemptr ";
+                    if(i == 0) {
+                        std::cout << "@" << ident << "_" << scope << ", ";
+                    } else {
+                        std::cout << "%" << last_ptr << ", ";
+                    }
+                    if(!num.empty()) {
+                        std::cout << num << std::endl;
+                    } else {
+                        std::cout << "%" << global_reg - 1 << std::endl;
+                    }
+                    ++global_reg;
+                }
+                std::cout << "  %" << global_reg << " = load %" << global_reg - 1 << std::endl;
+                ++global_reg;
+            } else {
+                for(int i = 0; i < index_list->size(); ++i) {
+                    int last_ptr = global_reg - 1;
+                    auto& index = index_list->at(i);
+                    std::string num = index->DumpIR();
+                    std::cout << "  %" << global_reg << " = getelemptr ";
+                    if(i == 0) {
+                        std::cout << "@" << ident << "_" << scope << ", ";
+                    } else {
+                        std::cout << "%" << last_ptr << ", ";
+                    }
+                    if(!num.empty()) {
+                        std::cout << num << std::endl;
+                    } else {
+                        std::cout << "%" << global_reg - 1 << std::endl;
+                    }
+                    ++global_reg;
+                }
                 std::cout << "  %" << global_reg << " = getelemptr ";
-                if(i == 0) {
-                    std::cout << "@" << ident << "_" << scope << ", ";
+                if(index_list->size() == 0) {
+                    std::cout << "@" << ident << "_" << scope;
                 } else {
-                    std::cout << "%" << last_ptr << ", ";
+                    std::cout << "%" << global_reg - 1;
                 }
-                if(!num.empty()) {
-                    std::cout << num << std::endl;
-                } else {
-                    std::cout << "%" << global_reg - 1 << std::endl;
-                }
+                std::cout << ", 0" << std::endl;
                 ++global_reg;
             }
-            std::cout << "  %" << global_reg << " = load %" << global_reg - 1 << std::endl;
-            ++global_reg;
+        } else if(symb->type == POINTER) {
+            if(symb->val == index_list->size()) {
+                std::cout << "  %" << global_reg << " = load @" << ident << "_" << scope << std::endl;
+                ++global_reg;
+                for(int i = 0; i < index_list->size(); ++i) {
+                    int last_ptr = global_reg - 1;
+                    auto& index = index_list->at(i);
+                    std::string num = index->DumpIR();
+                    if(i == 0) {
+                        std::cout << "  %" << global_reg << " = getptr ";
+                        std::cout << "%" << last_ptr << ", ";
+                    } else {
+                        std::cout << "  %" << global_reg << " = getelemptr ";
+                        std::cout << "%" << last_ptr << ", ";
+                    }
+                    if(!num.empty()) {
+                        std::cout << num << std::endl;
+                    } else {
+                        std::cout << "%" << global_reg - 1 << std::endl;
+                    }
+                    ++global_reg;
+                }
+                std::cout << "  %" << global_reg << " = load %" << global_reg - 1 << std::endl;
+                ++global_reg;     
+            } else {
+                std::cout << "  %" << global_reg << " = load @" << ident << "_" << scope << std::endl;
+                ++global_reg;
+                for(int i = 0; i < index_list->size(); ++i) {
+                    int last_ptr = global_reg - 1;
+                    auto& index = index_list->at(i);
+                    std::string num = index->DumpIR();
+                    if(i == 0) {
+                        std::cout << "  %" << global_reg << " = getptr ";
+                        std::cout << "%" << last_ptr << ", ";
+                    } else {
+                        std::cout << "  %" << global_reg << " = getelemptr ";
+                        std::cout << "%" << last_ptr << ", ";
+                    }
+                    if(!num.empty()) {
+                        std::cout << num << std::endl;
+                    } else {
+                        std::cout << "%" << global_reg - 1 << std::endl;
+                    }
+                    ++global_reg;
+                }
+                if(index_list->size() == 0) {
+                    std::cout << "  %" << global_reg << " = getptr %";
+                } else {
+                    std::cout << "  %" << global_reg << " = getelemptr %";
+                }
+                std::cout << global_reg - 1 << ", 0" << std::endl;
+                ++global_reg;
+            }
         }
         return "";
     }
@@ -1340,6 +1451,7 @@ class StmtAST : public BaseAST {
         int last_ptr;
         int exp_reg;
         std::string num2; 
+        Symbol sym;
         switch(tag) {
             case RETURN_EXP:
                 num = exp->DumpIR();
@@ -1354,6 +1466,7 @@ class StmtAST : public BaseAST {
                 lval_ptr = dynamic_cast<LValAST*>(lval.get());
                 num = exp->DumpIR();
                 exp_reg = global_reg - 1;
+                sym = *symbol_table.query(lval_ptr->ident);
                 if(lval_ptr->index_list->empty()) {
                     if(!num.empty()) {
                         std::cout << "  store " << num << ", @";
@@ -1363,7 +1476,7 @@ class StmtAST : public BaseAST {
                     std::cout << lval_ptr->ident;
                     std::cout << "_" << symbol_table.query_scope(lval_ptr->ident);
                     std::cout << std::endl;
-                } else {
+                } else if(sym.type == VAR_ARRAY){
                     for(int i = 0; i < lval_ptr->index_list->size(); ++i) {
                         last_ptr = global_reg - 1;
                         num2 = lval_ptr->index_list->at(i)->DumpIR();
@@ -1385,6 +1498,32 @@ class StmtAST : public BaseAST {
                     } else {
                         std::cout << "  store %" << exp_reg << ", %" << global_reg - 1 << std::endl;
                     }
+                } else if(sym.type == POINTER) {
+                    std::cout << "  %" << global_reg << " = load @";
+                    std::cout << lval_ptr->ident << "_" << symbol_table.query_scope(lval_ptr->ident) << std::endl;
+                    ++global_reg;
+                    for(int i = 0; i < lval_ptr->index_list->size(); ++i) {
+                        last_ptr = global_reg - 1;
+                        num2 = lval_ptr->index_list->at(i)->DumpIR();
+                        if(i == 0) {
+                            std::cout << "  %" << global_reg << " = getptr ";                    
+                            std::cout << "%" << last_ptr;
+                        } else {
+                            std::cout << "  %" << global_reg << " = getelemptr ";
+                            std::cout << "%" << last_ptr;
+                        }
+                        if(!num2.empty()) {
+                            std::cout << ", " << num2 << std::endl;
+                        } else {
+                            std::cout << ", %" << global_reg - 1 << std::endl;
+                        }
+                        ++global_reg;
+                    }
+                    if(!num.empty()) {
+                        std::cout << "  store " << num << ", %" << global_reg - 1 << std::endl;
+                    } else {
+                        std::cout << "  store %" << exp_reg << ", %" << global_reg - 1 << std::endl;
+                    }                    
                 }
                 break;
             case EMPTY: break;
