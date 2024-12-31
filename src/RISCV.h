@@ -3,6 +3,7 @@
 #include <string>
 #include <cassert>
 #include <cstring>
+#include <vector>
 #include <unordered_map>
 #include "koopa.h"
 
@@ -18,6 +19,12 @@ static int sf_index = 0;
 // 函数是否需要保存ra
 static int save_ra = 0;
 
+// 数组或指针的维度长度
+static std::unordered_map<koopa_raw_value_t, std::vector<int>> array_dims;
+// 每个value对应的维度区间
+typedef std::pair<std::vector<int>::iterator, std::vector<int>::iterator> range_t;
+static std::unordered_map<koopa_raw_value_t, range_t> array_ranges;
+
 // 访问raw program
 void Visit(const koopa_raw_program_t& program);
 // 访问 raw slice
@@ -30,14 +37,20 @@ void Visit(const koopa_raw_basic_block_t &bb);
 void Visit(const koopa_raw_value_t &value);
 // 访问 integer 指令
 void Visit(const koopa_raw_integer_t &integer);
-// 访问 binary 指令
-void Visit(const koopa_raw_binary_t &binary, const koopa_raw_value_t &dest);
+// 访问 alloc 指令
+void VisitAlloc(const koopa_raw_value_t &alloc);
 // 访问 global_alloc 指令
 void Visit(const koopa_raw_global_alloc_t &global_alloc, const koopa_raw_value_t &value);
 // 访问 load 指令
 void Visit(const koopa_raw_load_t &load, const koopa_raw_value_t &dest);
 // 访问 store 指令
 void Visit(const koopa_raw_store_t &store);
+// 访问 getptr 指令
+void Visit(const koopa_raw_get_ptr_t &getptr, const koopa_raw_value_t& dest);
+// 访问 getelemptr 指令
+void Visit(const koopa_raw_get_elem_ptr_t &getelemptr, const koopa_raw_value_t& dest);
+// 访问 binary 指令
+void Visit(const koopa_raw_binary_t &binary, const koopa_raw_value_t &dest);
 // 访问 branch 指令
 void Visit(const koopa_raw_branch_t &branch);
 // 访问 jump 指令
@@ -47,15 +60,26 @@ void Visit(const koopa_raw_call_t &call, const koopa_raw_value_t &value);
 // 访问 return 指令
 void Visit(const koopa_raw_return_t &ret);
 
+// utilities
 // 将栈帧中value的值写到寄存器reg_name中
 void write_reg(const koopa_raw_value_t &value, const std::string &reg_name);
 // 将寄存器reg_name的值储存到栈帧中的value
 void save_reg(const koopa_raw_value_t &value, const std::string &reg_name);
+// 将value的地址写到reg_name中
+void write_addr_reg(const koopa_raw_value_t &value, const std::string &reg_name);
+// value是否是一个*...
+int isPointer(const koopa_raw_value_t &value);
+// 全局数组初始化
+void global_array_init(const koopa_raw_value_t &value);
+// base type的大小
+int base_size(const range_t& se);
 
 // 访问 raw program
 void Visit(const koopa_raw_program_t &program) {
   // 执行一些其他的必要操作
   // ...
+  array_dims.clear();
+  array_ranges.clear();
 
   // 访问所有全局变量
   Visit(program.values);
@@ -117,6 +141,15 @@ void Visit(const koopa_raw_function_t &func) {
       if(inst->kind.tag == KOOPA_RVT_CALL) {
         R = 4;
         A = max(A, 4 * max(0, int(inst->kind.data.call.args.len) - 8));
+      } else if(inst->kind.tag == KOOPA_RVT_ALLOC && inst->ty->data.pointer.base->tag == KOOPA_RTT_ARRAY) {
+        S -= 4;
+        int cur_sz = 4;
+        auto base = inst->ty->data.pointer.base;
+        while(base->tag == KOOPA_RTT_ARRAY) {
+          cur_sz *= base->data.array.len; 
+          base = base->data.array.base;
+        }
+        S += cur_sz; 
       }
     }
   }
@@ -125,6 +158,7 @@ void Visit(const koopa_raw_function_t &func) {
   // sf_index要从函数参数后开始
   sf_index = A;
 
+  // 分配栈帧空间
   if(sf_size > 0 && sf_size <= 2048) {
     std::cout << "  addi sp, sp, -" << sf_size << std::endl;
   } else if (sf_size > 2048) {
@@ -185,8 +219,7 @@ void Visit(const koopa_raw_value_t &value) {
       Visit(kind.data.integer);
       break;
     case KOOPA_RVT_ALLOC:
-      stack_frame[value] = sf_index; 
-      sf_index += 4;
+      VisitAlloc(value);
       break;
     case KOOPA_RVT_GLOBAL_ALLOC:
       Visit(kind.data.global_alloc, value);
@@ -196,6 +229,12 @@ void Visit(const koopa_raw_value_t &value) {
       break;
     case KOOPA_RVT_STORE:
       Visit(kind.data.store);
+      break;
+    case KOOPA_RVT_GET_PTR:
+      Visit(kind.data.get_ptr, value);
+      break;
+    case KOOPA_RVT_GET_ELEM_PTR:
+      Visit(kind.data.get_elem_ptr, value);
       break;
     case KOOPA_RVT_BINARY:
       Visit(kind.data.binary, value);
@@ -224,18 +263,75 @@ void Visit(const koopa_raw_integer_t &integer) {
   std::cout << "  li a0, " << int_val << "\n";
 } 
 
+// alloc
+void VisitAlloc(const koopa_raw_value_t &alloc) {
+  auto base = alloc->ty->data.pointer.base;
+  if(base->tag == KOOPA_RTT_INT32) {
+    stack_frame[alloc] = sf_index;
+    sf_index += 4;
+  } else if(base->tag == KOOPA_RTT_ARRAY ){
+    int cur_sz = 4;
+    for(int i: array_dims[alloc]) {std::cout << i << std::endl;}
+    while(base->tag == KOOPA_RTT_ARRAY) {
+      //std::cout << "len is " << base->data.array.len << std::endl;
+      array_dims[alloc].push_back(base->data.array.len);
+      cur_sz *= base->data.array.len;
+      base = base->data.array.base;
+    }
+    array_ranges[alloc] = std::make_pair(array_dims[alloc].begin(), array_dims[alloc].end());
+    stack_frame[alloc] = sf_index;
+    sf_index += cur_sz;
+    //for(int i: array_dims[alloc]) {std::cout << i << std::endl;}
+  } else if(base->tag == KOOPA_RTT_POINTER) {
+    while(base->tag == KOOPA_RTT_POINTER) {
+      array_dims[alloc].push_back(0);
+      base = base->data.array.base;
+    }
+    while(base->tag == KOOPA_RTT_ARRAY) {
+      array_dims[alloc].push_back(base->data.array.len);
+      base = base->data.array.base;
+    }
+    array_ranges[alloc] = std::make_pair(array_dims[alloc].begin(), array_dims[alloc].end());
+    stack_frame[alloc] = sf_index;
+    sf_index += 4;
+  }
+}
+
 // global_alloc
 void Visit(const koopa_raw_global_alloc_t &global_alloc, const koopa_raw_value_t &value) {
   std::cout << "  .data" << std::endl;
   std::cout << "  .globl " << value->name + 1 << std::endl;
   std::cout << value->name + 1 << ":" << std::endl;
   switch(global_alloc.init->kind.tag) {
-    case KOOPA_RVT_ZERO_INIT:
-      std::cout << "  .zero 4" << std::endl;
+    case KOOPA_RVT_ZERO_INIT: {
+      auto base = value->ty->data.pointer.base;
+      int cur_sz = 4;
+      bool is_array = 0;
+      while(base->tag == KOOPA_RTT_ARRAY) {
+        is_array = 1;
+        array_dims[value].push_back(base->data.array.len);
+        cur_sz *= base->data.array.len;
+        base = base->data.array.base;
+      }
+      if(is_array) {
+        array_ranges[value] = std::make_pair(array_dims[value].begin(), array_dims[value].end());
+      }
+      std::cout << "  .zero " << cur_sz << std::endl;
       break;
+    }
     case KOOPA_RVT_INTEGER:
       std::cout << "  .word " << global_alloc.init->kind.data.integer.value << std::endl;
       break;
+    case KOOPA_RVT_AGGREGATE: {
+      auto base = value->ty->data.pointer.base;
+      while(base->tag == KOOPA_RTT_ARRAY) {
+        array_dims[value].push_back(base->data.array.len);
+        base = base->data.array.base;
+      }
+      array_ranges[value] = std::make_pair(array_dims[value].begin(), array_dims[value].end());
+      global_array_init(global_alloc.init);
+      break;
+    }
     default:
       // 其他类型暂时遇不到
       assert(false);
@@ -251,6 +347,12 @@ void Visit(const koopa_raw_global_alloc_t &global_alloc, const koopa_raw_value_t
 // sw dest, t3
 void Visit(const koopa_raw_load_t &load, const koopa_raw_value_t &dest) {
   write_reg(load.src, "t0");
+  if(isPointer(load.src)) {
+    std::cout << "  lw t0, 0(t0)" << std::endl;
+  }
+  if(array_ranges.find(load.src) != array_ranges.end()) {
+    array_ranges[dest] = array_ranges[load.src];
+  }
   stack_frame[dest] = sf_index; 
   sf_index += 4;
   save_reg(dest, "t0");
@@ -259,7 +361,50 @@ void Visit(const koopa_raw_load_t &load, const koopa_raw_value_t &dest) {
 // 访问store
 void Visit(const koopa_raw_store_t &store) {
   write_reg(store.value, "t0");
-  save_reg(store.dest, "t0");
+  if(isPointer(store.value)) {
+    std::cout << "  lw t0, 0(t0)" << std::endl;
+  }
+  write_addr_reg(store.dest, "t3");
+  if(isPointer(store.dest)) {
+    std::cout << "  lw t3, 0(t3)" << std::endl;
+  }
+  std::cout << "  sw t0, 0(t3)" << std::endl;
+}
+
+// 访问 getptr 
+void Visit(const koopa_raw_get_ptr_t &getptr, const koopa_raw_value_t& dest) {
+  write_addr_reg(getptr.src, "t0");
+  if(isPointer(getptr.src)) {
+    std::cout << "  lw t0, 0(t0)" << std::endl;
+  }
+  write_reg(getptr.index, "t1");
+  std::cout << "  li t2, " << base_size(array_ranges[getptr.src]) << std::endl;
+  std::cout << "  mul t1, t1, t2" << std::endl;
+  std::cout << "  add t0, t0, t1" << std::endl;
+  auto se = array_ranges[getptr.src];
+  auto s = se.first; ++s;
+  array_ranges[dest] = std::make_pair(s, se.second);
+  stack_frame[dest] = sf_index;
+  sf_index += 4;
+  save_reg(dest, "t0");
+}
+
+// 访问 getelemptr 
+void Visit(const koopa_raw_get_elem_ptr_t &getelemptr, const koopa_raw_value_t& dest) {
+  write_addr_reg(getelemptr.src, "t0");
+  if(isPointer(getelemptr.src)) {
+    std::cout << "  lw t0, 0(t0)" << std::endl;
+  }
+  write_reg(getelemptr.index, "t1");
+  std::cout << "  li t2, " << base_size(array_ranges[getelemptr.src]) << std::endl;
+  std::cout << "  mul t1, t1, t2" << std::endl;
+  std::cout << "  add t0, t0, t1" << std::endl;
+  auto se = array_ranges[getelemptr.src];
+  auto s = se.first; ++s;
+  array_ranges[dest] = std::make_pair(s, se.second);
+  stack_frame[dest] = sf_index;
+  sf_index += 4;
+  save_reg(dest, "t0");
 }
 
 // 访问binary
@@ -409,7 +554,7 @@ void Visit(const koopa_raw_return_t &ret) {
   std::cout << "  ret\n";
 }
 
-//将栈帧中的值写入寄存器
+//将value的值写入寄存器
 void write_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
   const auto& kind = value->kind;
   int offset;
@@ -467,4 +612,67 @@ void save_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
     }
   }
 
+}
+
+// 将value的地址放入名字为reg_name的寄存器中
+void write_addr_reg(const koopa_raw_value_t &value, const std::string &reg_name) {
+  const auto& kind = value->kind;
+  // 全局变量
+  if(kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+    std::cout << "  la " << reg_name << ", " << value->name + 1 << std::endl;
+  }
+  // 函数参数 
+  else if(kind.tag == KOOPA_RVT_FUNC_ARG_REF) {
+    size_t index = kind.data.func_arg_ref.index;
+    int offset = sf_size + (index - 8) * 4;
+    std::cout << "  li " << reg_name << ", " << offset << std::endl;
+    std::cout <<  "  add " << reg_name << ", " << reg_name << ", sp" << std::endl;
+  }
+  // 临时变量
+  else {
+    std::cout << "  li " << reg_name << ", " << stack_frame[value] << std::endl;
+    std::cout <<  "  add " << reg_name << ", " << reg_name << ", sp" << std::endl;
+  }
+}
+
+// 判断value是否是一个指针
+int isPointer(const koopa_raw_value_t &value) {
+  if(value->kind.tag == KOOPA_RVT_GET_PTR || value->kind.tag == KOOPA_RVT_GET_ELEM_PTR) {
+    return 1;
+  }
+  if(value->kind.tag == KOOPA_RVT_LOAD) {
+    const auto& src = value->kind.data.load.src;
+    if(src->kind.tag == KOOPA_RVT_ALLOC && src->ty->data.pointer.base->tag == KOOPA_RTT_POINTER) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// 全局数组初始化
+void global_array_init(const koopa_raw_value_t &value) {
+  const auto& kind = value->kind;
+  if(kind.tag == KOOPA_RVT_INTEGER) {
+    std::cout << "  .word " << kind.data.integer.value << std::endl;
+    return;
+  }
+
+  if(kind.tag == KOOPA_RVT_AGGREGATE) {
+    const auto& ag = kind.data.aggregate;
+    for(int i = 0; i < ag.elems.len; ++i) {
+      global_array_init(reinterpret_cast<koopa_raw_value_t>(ag.elems.buffer[i]));
+    }
+  }
+
+}
+
+// base type的大小
+int base_size(const range_t& se) {
+  auto s = se.first, e = se.second;
+  int sz = 4;
+  ++s;
+  for(; s != e; ++s) {
+    sz *= *(s);
+  }
+  return sz;
 }
